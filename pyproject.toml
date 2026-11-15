@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-witness"
-version = "0.1.0"
-description = "Cryptographic action attestation & Merkle audit receipts for autonomous AI agents"
+version = "0.2.0"
+description = "Cryptographic action attestation, selective disclosure & Merkle audit receipts for autonomous AI agents"
 readme = "README.md"
 authors = [{ name = "Lakshitha Dananjaya", email = "lakshitha.dananjaya.org@gmail.com" }]
 license = { text = "Apache-2.0" }
@@ -21,13 +21,14 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-keywords = ["ai-agents", "cryptography", "merkle-tree", "attestation", "auditability", "solidity", "web3", "receipts"]
+keywords = ["ai-agents", "cryptography", "merkle-tree", "attestation", "auditability", "solidity", "web3", "receipts", "eip-712", "solana"]
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
 ]
 

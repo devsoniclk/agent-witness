@@ -33,6 +33,9 @@ class MerkleProof:
     leaf_hash: str
     audit_path: List[Dict[str, str]]  # [{"direction": "left"|"right", "hash": "hex"}]
 
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
 
 @dataclass
 class WitnessReceipt:
@@ -49,3 +52,25 @@ class WitnessReceipt:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class ProofBundle:
+    """
+    Selective disclosure proof package.
+    Proves that a single step occurred in an attested deliberation trajectory
+    without disclosing other private thoughts, prompts, or tool actions.
+    """
+    version: str
+    agent_id: str
+    agent_pubkey: str
+    model_id: str
+    merkle_root: str
+    signature: str
+    disclosed_step: Dict[str, Any]
+    merkle_proof: MerkleProof
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["merkle_proof"] = self.merkle_proof.to_dict()
+        return d

@@ -1,10 +1,10 @@
 # agent-witness
 
-> **Cryptographic action attestation & Merkle audit receipts for autonomous AI agents.**
+> **Cryptographic action attestation, selective disclosure & Merkle audit receipts for autonomous AI agents.**
 
 [![CI](https://github.com/devsoniclk/agent-witness/actions/workflows/ci.yml/badge.svg)](https://github.com/devsoniclk/agent-witness/actions)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/agent-witness/)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://pypi.org/project/agent-witness/)
 
 ---
 
@@ -20,26 +20,21 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 `agent-witness` is a **hardware-independent, zero-dependency cryptographic attestation engine**:
 - **RFC 6962 Merkle Action Trees**: Incrementally hashes every observation, thought, tool invocation, and decision into a domain-separated Merkle tree.
 - **Cryptographic Action Receipts (`.witness`)**: Produces compact, tamper-evident cryptographic receipts binding model metadata, prompt hash, and Merkle root.
-- **Sub-Millisecond Verification**: Off-chain verification in `<0.1ms`; on-chain Solidity verification in `<28,000 gas`.
-- **Selective Disclosure & Inclusion Proofs**: Prove that a specific tool call or safety check occurred without exposing the entire conversation context.
+- **Selective Disclosure Proof Bundles**: Prove that a critical safety check or specific trade tool call occurred without revealing confidential prompts or private reasoning tokens.
+- **Universal Tool Middleware**: Intercept and attest synchronous and asynchronous agent functions with `@witness_action`.
+- **EIP-712 Structured Data Standards**: Zero-dependency pure Python Keccak-256 and EIP-712 typed struct hashing for instant EVM smart contract verification (`ecrecover`).
+- **Cross-Chain Verifiers**: Production-ready on-chain verification programs for both **Ethereum (Solidity)** and **Solana (Anchor)**.
+- **Sub-Millisecond Verification**: Off-chain verification in `<0.1ms`; on-chain EVM verification in `<28,000 gas`.
 
 ---
 
-## 4. Key Features
-- **Deterministic Canonical Serialization**: Ensures reproducible hashes across architectures.
-- **Domain Separation Prefixes**: Uses RFC 6962 `0x00` leaf and `0x01` branch prefixes to prevent second-preimage attacks.
-- **On-Chain Smart Contract**: Includes production-ready `AgentWitnessVerifier.sol` for EVM smart contracts.
-- **Universal CLI**: Inspect (`agent-witness inspect receipt.witness`) and verify receipts locally.
-
----
-
-## 5. Architecture
+## 4. Architecture
 
 ```mermaid
 flowchart TD
     subgraph Autonomous Agent Loop
         O["1. Observation"] --> T["2. Thought"]
-        T --> C["3. Tool Call"]
+        T --> C["3. Tool Call (@witness_action)"]
         C --> R["4. Tool Result"]
         R --> D["5. Final Action"]
     end
@@ -57,87 +52,143 @@ flowchart TD
     end
 
     ROOT --> SIG["Signed Witness Receipt (.witness)"]
-    SIG --> AUDIT["Off-Chain Auditor / On-Chain Smart Contract"]
+    SIG --> BUNDLE["Selective Disclosure Proof (.proof.json)"]
+    SIG & BUNDLE --> AUDIT["Off-Chain Auditor / EVM & Solana Verifiers"]
 ```
 
 ---
 
-## 6. Installation
+## 5. Installation
 
 ```bash
 pip install agent-witness
 ```
 
-Or install from source:
+Or install from source with dev extras:
 ```bash
 git clone https://github.com/devsoniclk/agent-witness.git
 cd agent-witness
-pip install -e .
+pip install -e .[dev]
 ```
 
 ---
 
-## 7. Quick-Start Guide
+## 6. Quick-Start Guide
 
-### Python Agent Integration
+### 1. Tool Middleware (`@witness_action`)
+Automatically record and attest sync and `async` agent tool executions:
+
 ```python
-from agent_witness import WitnessEngine, StepType, verify_merkle_proof
+import asyncio
+from agent_witness import WitnessEngine, witness_action, witness_scope
 
-# 1. Initialize Engine
 engine = WitnessEngine(
-    agent_id="treasury-executor-01",
+    agent_id="rebalance-agent-01",
     model_id="claude-3-7-sonnet",
-    system_prompt="You are a treasury rebalance bot.",
+    system_prompt="Autonomous DeFi rebalance bot",
 )
 
-# 2. Record Steps
-engine.record_step(StepType.OBSERVATION, "ETH balance: 100 ETH, threshold reached")
-engine.record_step(StepType.THOUGHT, "Rebalancing 10 ETH to staking pool")
-engine.record_step(StepType.TOOL_CALL, "stake(amount=10)")
-engine.record_step(StepType.DECISION, "Stake transaction confirmed")
+# Universal sync/async tool decorator
+@witness_action(engine)
+async def execute_swap(pool: str, amount_in: float) -> str:
+    # Simulated execution
+    return f"tx_hash_0x123_swapped_{amount_in}"
 
-# 3. Finalize and Sign
-receipt = engine.finalize_receipt()
-print(f"Merkle Root: {receipt.merkle_root}")
-print(f"Attestation Signature: {receipt.signature}")
+async def main():
+    with witness_scope(engine, scope_name="market_check"):
+        await execute_swap("SOL-USDC", 50.0)
 
-# 4. Generate Single-Step Inclusion Proof
-proof = engine.generate_proof_for_step(2)
-tool_leaf_hash = receipt.steps[2]["leaf_hash"]
-assert verify_merkle_proof(tool_leaf_hash, proof, receipt.merkle_root)
+    receipt = engine.finalize_receipt()
+    print("Attested Merkle Root:", receipt.merkle_root)
+
+asyncio.run(main())
+```
+
+### 2. Selective Disclosure Proof Export
+Disclose only the critical action step without exposing private system prompts or other reasoning steps:
+
+```python
+from agent_witness import export_proof_bundle, verify_proof_bundle
+
+# Export proof for step #1
+proof_bundle = export_proof_bundle(receipt, step_index=1)
+
+# Third-party or smart contract verifier validates the proof standalone
+is_valid, report = verify_proof_bundle(proof_bundle.to_dict())
+assert is_valid
+print(report)
+# Output: Verified: Step #1 is cryptographically bound to Merkle root ...
+```
+
+### 3. EIP-712 EVM Typed Structured Data
+Hash receipts according to EIP-712 for Ethereum / EVM on-chain verification:
+
+```python
+from agent_witness import EIP712Domain, compute_eip712_digest
+
+domain = EIP712Domain(
+    name="AgentWitness",
+    version="1",
+    chain_id=1,
+    verifying_contract="0x1234567890123456789012345678901234567890",
+)
+
+digest = compute_eip712_digest(receipt, domain)
+print("EIP-712 Digest for ecrecover:", "0x" + digest.hex())
 ```
 
 ---
 
-## 8. On-Chain Smart Contract Verification (`AgentWitnessVerifier.sol`)
+## 7. On-Chain Verifiers
 
-Deploy `contracts/AgentWitnessVerifier.sol` to verify agent action proofs on EVM networks:
+### Ethereum / EVM (`contracts/AgentWitnessVerifier.sol`)
+Deploy the zero-dependency Solidity verifier on any EVM network:
 
 ```solidity
-// Verify that the agent actually executed the required safety checks before calling this function:
+// Verify single-step inclusion proof in <28k gas:
 require(
     verifier.verifyProof(stepLeafHash, auditPath, receiptMerkleRoot),
     "Invalid agent deliberation proof"
 );
+
+// Verify signed EIP-712 receipt via ecrecover:
+require(
+    verifier.verifyReceiptSignature(receiptData, v, r, s, expectedAgentAddress),
+    "Unauthorized agent signer"
+);
+```
+
+### Solana Anchor (`contracts/solana/programs/agent_witness/src/lib.rs`)
+Verify agent deliberation proofs on Solana using Anchor:
+
+```rust
+use agent_witness::verify_merkle_membership;
+
+let is_valid = verify_merkle_membership(&leaf_hash, &audit_path, &expected_root);
+require!(is_valid, WitnessError::InvalidProof);
 ```
 
 ---
 
-## 9. CLI Usage
+## 8. CLI Usage
 
 ```bash
-# Inspect a .witness cryptographic receipt
+# 1. Inspect a .witness cryptographic receipt
 agent-witness inspect trade_receipt.witness
 
-# Verify the Merkle integrity of a receipt
+# 2. Verify Merkle root integrity
 agent-witness verify trade_receipt.witness
-# Output:
-# VERIFIED: Merkle root matches all 5 deliberation steps.
+
+# 3. Export selective disclosure proof for step #2
+agent-witness export-proof trade_receipt.witness --step 2 --output step2_proof.json
+
+# 4. Verify standalone selective disclosure proof
+agent-witness verify-proof step2_proof.json
 ```
 
 ---
 
-## 10. Benchmarks
+## 9. Benchmarks
 
 Measured on Apple Silicon (M5 Air):
 
@@ -145,31 +196,35 @@ Measured on Apple Silicon (M5 Air):
 | :--- | :--- | :--- |
 | **Merkle Tree Build (10 steps)** | `0.11 ms` | `< 0.5 MB` |
 | **Merkle Inclusion Proof Generation** | `0.04 ms` | `< 0.2 MB` |
-| **Proof Verification** | `0.02 ms` | `< 0.1 MB` |
+| **Standalone Proof Verification** | `0.02 ms` | `< 0.1 MB` |
+| **Pure Python Keccak-256 (32B)** | `0.03 ms` | `< 0.1 MB` |
 | **Solidity Gas Cost (Depth 4)** | `~26,400 gas` | — |
 
 ---
 
-## 11. Security Considerations
-- Uses RFC 6962 domain separation prefixes (`0x00` and `0x01`) to protect against second-preimage attacks.
-- Deliberation steps use canonical deterministic byte encodings.
-- Signer session keys are kept in-memory and can be rotated per session.
+## 10. Security Considerations
+- Uses RFC 6962 domain separation prefixes (`0x00` leaves, `0x01` internal nodes) to prevent second-preimage attacks.
+- Deliberation steps use canonical deterministic byte encodings (`index:type:content:metadata:timestamp`).
+- All cryptographic primitives (SHA-256, Keccak-256, HMAC-SHA256, EIP-712) implemented with zero external runtime dependencies.
 
 ---
 
-## 12. Roadmap
+## 11. Roadmap
 - [x] RFC 6962 incremental Merkle Tree.
 - [x] Cryptographic Witness Receipt builder & verifier.
-- [x] Solidity `AgentWitnessVerifier.sol` contract.
-- [ ] Solana Anchor on-chain verification program.
-- [ ] EIP-712 structured data signing standard.
+- [x] Solidity `AgentWitnessVerifier.sol` contract with EIP-712 support.
+- [x] Solana Anchor on-chain verification program (`contracts/solana`).
+- [x] EIP-712 structured data signing standard & pure Python Keccak-256.
+- [x] Selective disclosure proof export & standalone verification.
+- [x] Universal sync/async tool middleware (`@witness_action`).
+- [ ] ZK-SNARK circuit for private agent step proofs.
 
 ---
 
-## 13. Contributing
+## 12. Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-## 14. License
+## 13. License
 Distributed under the [Apache-2.0 License](LICENSE). Copyright 2026 Lakshitha Dananjaya (`devsoniclk`).
