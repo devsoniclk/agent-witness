@@ -12,4 +12,4 @@ venv/
 .coverage
 htmlcov/
 .DS_Store
-*.witness
+uv.lock
