@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-witness"
+version = "0.1.0"
+description = "Cryptographic action attestation & Merkle audit receipts for autonomous AI agents"
+readme = "README.md"
+authors = [{ name = "Lakshitha Dananjaya", email = "lakshitha.dananjaya.org@gmail.com" }]
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+keywords = ["ai-agents", "cryptography", "merkle-tree", "attestation", "auditability", "solidity", "web3", "receipts"]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.scripts]
+agent-witness = "agent_witness.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/devsoniclk/agent-witness"
+Repository = "https://github.com/devsoniclk/agent-witness.git"
+Issues = "https://github.com/devsoniclk/agent-witness/issues"
