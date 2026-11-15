@@ -38,3 +38,6 @@ agent-witness = "agent_witness.cli:main"
 Homepage = "https://github.com/devsoniclk/agent-witness"
 Repository = "https://github.com/devsoniclk/agent-witness.git"
 Issues = "https://github.com/devsoniclk/agent-witness/issues"
+
+[tool.setuptools.packages.find]
+include = ["agent_witness*"]
