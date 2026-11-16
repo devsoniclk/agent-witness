@@ -49,27 +49,29 @@ def test_sync_witness_action_exception():
     assert "ValueError" in engine.steps[1].content
 
 
-@pytest.mark.asyncio
-async def test_async_witness_action_decorator():
-    engine = WitnessEngine(
-        agent_id="async-agent",
-        model_id="gpt-4o",
-        system_prompt="Async test",
-    )
+def test_async_witness_action_decorator():
+    async def _run():
+        engine = WitnessEngine(
+            agent_id="async-agent",
+            model_id="gpt-4o",
+            system_prompt="Async test",
+        )
 
-    @witness_action(engine)
-    async def async_fetch_oracle(symbol: str) -> dict:
-        await asyncio.sleep(0.01)
-        return {"symbol": symbol, "price": 93250.0}
+        @witness_action(engine)
+        async def async_fetch_oracle(symbol: str) -> dict:
+            await asyncio.sleep(0.01)
+            return {"symbol": symbol, "price": 93250.0}
 
-    data = await async_fetch_oracle("BTC/USD")
-    assert data["price"] == 93250.0
+        data = await async_fetch_oracle("BTC/USD")
+        assert data["price"] == 93250.0
 
-    assert len(engine.steps) == 2
-    assert engine.steps[0].step_type == StepType.TOOL_CALL
-    assert "async_fetch_oracle" in engine.steps[0].content
-    assert engine.steps[1].step_type == StepType.TOOL_RESULT
-    assert "93250.0" in engine.steps[1].content
+        assert len(engine.steps) == 2
+        assert engine.steps[0].step_type == StepType.TOOL_CALL
+        assert "async_fetch_oracle" in engine.steps[0].content
+        assert engine.steps[1].step_type == StepType.TOOL_RESULT
+        assert "93250.0" in engine.steps[1].content
+
+    asyncio.run(_run())
 
 
 def test_witness_scope_context_manager():
@@ -84,14 +86,16 @@ def test_witness_scope_context_manager():
     assert "Exiting scope: market_analysis" in engine.steps[2].content
 
 
-@pytest.mark.asyncio
-async def test_async_witness_scope_context_manager():
-    engine = WitnessEngine("agent", "model", "prompt")
+def test_async_witness_scope_context_manager():
+    async def _run():
+        engine = WitnessEngine("agent", "model", "prompt")
 
-    async with async_witness_scope(engine, scope_name="subsecond_deliberation"):
-        await asyncio.sleep(0.01)
-        engine.record_step(StepType.DECISION, "Execution confirmed")
+        async with async_witness_scope(engine, scope_name="subsecond_deliberation"):
+            await asyncio.sleep(0.01)
+            engine.record_step(StepType.DECISION, "Execution confirmed")
 
-    assert len(engine.steps) == 3
-    assert "Entering async scope: subsecond_deliberation" in engine.steps[0].content
-    assert "Exiting async scope: subsecond_deliberation" in engine.steps[2].content
+        assert len(engine.steps) == 3
+        assert "Entering async scope: subsecond_deliberation" in engine.steps[0].content
+        assert "Exiting async scope: subsecond_deliberation" in engine.steps[2].content
+
+    asyncio.run(_run())
