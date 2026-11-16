@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-witness"
-version = "0.4.0"
+version = "0.5.0"
 description = "Cryptographic action attestation, MCP server, forensic verification, transparency logs & Merkle audit receipts for autonomous AI agents"
 readme = "README.md"
 authors = [{ name = "Lakshitha Dananjaya", email = "lakshitha.dananjaya.org@gmail.com" }]

@@ -20,7 +20,11 @@ def test_mcp_server_tool_definitions(tmp_path):
     assert "witness_log_verify_consistency" in tool_names
     assert "witness_attest_consensus" in tool_names
     assert "witness_generate_dossier" in tool_names
-    assert len(tools) == 10
+    # v0.5.0 tools
+    assert "witness_redact_receipt" in tool_names
+    assert "witness_evaluate_policy" in tool_names
+    assert "witness_batch_anchor" in tool_names
+    assert len(tools) == 13
 
 
 def test_mcp_server_lifecycle_record_and_finalize(tmp_path):
@@ -141,6 +145,47 @@ def test_mcp_server_generate_dossier(tmp_path):
     assert "Agent Witness" in content
 
 
+def test_mcp_server_v050_tools(tmp_path):
+    server = WitnessMCPServer(log_dir=str(tmp_path / ".witness_log"))
+    server.handle_call_tool("witness_record_action", {"step_type": "observation", "content": "Starting pipeline"})
+    server.handle_call_tool("witness_record_action", {"step_type": "thought", "content": "Private secret api_key: sk_live_9988776655"})
+    server.handle_call_tool("witness_record_action", {"step_type": "decision", "content": "Approved execution"})
+    rec_file = str(tmp_path / "receipt_v050.json")
+    server.handle_call_tool("witness_finalize_receipt", {"output_file": rec_file})
+
+    # Redact tool
+    red_file = str(tmp_path / "redacted_v050.json")
+    red_res = server.handle_call_tool("witness_redact_receipt", {
+        "receipt_file": rec_file,
+        "redact_steps": [1],
+        "output_file": red_file,
+    })
+    assert red_res["status"] == "redacted"
+    assert red_res["is_cryptographically_valid"] is True
+    assert Path(red_file).exists()
+
+    # Policy tool
+    pol_res = server.handle_call_tool("witness_evaluate_policy", {
+        "receipt_file": rec_file,
+        "max_steps": 50,
+    })
+    assert pol_res["is_compliant"] is True
+    assert pol_res["total_violations"] == 0
+
+    # Batch anchor tool
+    anc_file = str(tmp_path / "batch_anchor.json")
+    anc_res = server.handle_call_tool("witness_batch_anchor", {
+        "receipt_files": [rec_file],
+        "epoch_id": "epoch_alpha",
+        "output_file": anc_file,
+    })
+    assert anc_res["status"] == "anchored"
+    assert anc_res["receipt_count"] == 1
+    assert anc_res["evm_calldata"].startswith("0x23a6f44d")
+    assert anc_res["solana_memo"].startswith("AW:EPOCH:epoch_alpha:")
+    assert Path(anc_file).exists()
+
+
 def test_mcp_server_json_rpc_dispatch(tmp_path):
     server = WitnessMCPServer(log_dir=str(tmp_path / ".witness_log"))
 
@@ -148,7 +193,7 @@ def test_mcp_server_json_rpc_dispatch(tmp_path):
     init_req = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
     init_res = server.handle_request(init_req)
     assert init_res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert init_res["result"]["serverInfo"]["version"] == "0.4.0"
+    assert init_res["result"]["serverInfo"]["version"] == "0.5.0"
 
     # notifications/initialized
     notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
@@ -157,7 +202,7 @@ def test_mcp_server_json_rpc_dispatch(tmp_path):
     # tools/list
     list_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     list_res = server.handle_request(list_req)
-    assert len(list_res["result"]["tools"]) == 10
+    assert len(list_res["result"]["tools"]) == 13
 
     # tools/call
     call_req = {

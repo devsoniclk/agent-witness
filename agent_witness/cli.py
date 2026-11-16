@@ -6,13 +6,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from .batch_anchor import BatchAnchorEngine
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .html_report import render_html_report
 from .log import TransparencyLog
 from .mcp_server import WitnessMCPServer
 from .models import AgentAttestation, ConsensusReceipt, DeliberationStep, ProofBundle, StepType, WitnessReceipt
+from .policy import (
+    DisallowedToolsRule,
+    ExecutionDurationRule,
+    MaxStepsRule,
+    ModelWhitelistRule,
+    PolicyGuard,
+    RequiredApprovalRule,
+    StepRepetitionRule,
+)
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
+from .redaction import RedactionEngine
 from .signer import AgentSigner
 from .verifier import verify_trajectory_integrity
 
@@ -52,6 +63,29 @@ def main() -> None:
     p_mcp.add_argument("--log-dir", default=".witness_log", help="Transparency log directory (default: .witness_log).")
     p_mcp.add_argument("--agent-id", default="agent-mcp-witness", help="Agent identifier.")
     p_mcp.add_argument("--model-id", default="openbot-v1", help="Model identifier.")
+
+    # redact (v0.5.0)
+    p_red = subparsers.add_parser("redact", help="Selectively redact confidential steps while preserving cryptographic Merkle root.")
+    p_red.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+    p_red.add_argument("--steps", "-s", help="Comma-separated list of step indices to redact (e.g. 1,3,4).")
+    p_red.add_argument("--reason", default="Confidential / Redacted for Privacy", help="Redaction label.")
+    p_red.add_argument("--output", "-o", required=True, help="Output JSON path for redacted receipt.")
+
+    # policy (v0.5.0)
+    p_pol = subparsers.add_parser("policy", help="Audit receipt against enterprise governance and safety policies.")
+    p_pol.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+    p_pol.add_argument("--max-steps", type=int, default=100, help="Max allowed steps.")
+    p_pol.add_argument("--disallowed-tools", help="Comma-separated list of prohibited tools.")
+    p_pol.add_argument("--allowed-models", help="Comma-separated list of allowed model IDs.")
+    p_pol.add_argument("--json", action="store_true", help="Output policy report as JSON.")
+
+    # batch-anchor (v0.5.0)
+    p_anc = subparsers.add_parser("batch-anchor", help="Batch multiple receipts into an aggregated Epoch Merkle Root.")
+    p_anc.add_argument("receipt_files", nargs="+", help="Paths to receipt JSON files.")
+    p_anc.add_argument("--epoch-id", help="Optional epoch batch identifier.")
+    p_anc.add_argument("--output", "-o", help="Optional output path to save batch receipt.")
+    p_anc.add_argument("--evm", action="store_true", help="Display EVM calldata.")
+    p_anc.add_argument("--solana", action="store_true", help="Display Solana SPL memo payload.")
 
     # export-proof
     p_exp = subparsers.add_parser("export-proof", help="Export selective disclosure proof for a single step.")
@@ -97,22 +131,27 @@ def main() -> None:
         print(f"Agent Pubkey:       {receipt.agent_pubkey[:16]}...")
         print(f"Model ID:           {receipt.model_id}")
         print(f"Prompt Hash:        {receipt.system_prompt_hash[:16]}...")
-        print(f"Merkle Root:        {receipt.merkle_root}")
-        print(f"Step Count:         {receipt.step_count}")
-        print(f"Attestation Sig:    {receipt.signature[:24]}...")
-        print("\n[Attested Deliberation Steps]")
+        print(f"Deliberation Steps: {receipt.step_count}")
+        print(f"Merkle Action Root: {receipt.merkle_root}")
+        print(f"Signature:          {receipt.signature[:32]}...")
+        print("------------------------------------------------------------------")
+        print(f"{'Idx':<4} {'Type':<12} {'Leaf Hash':<16} {'Preview'}")
+        print("------------------------------------------------------------------")
         for s in receipt.steps:
-            print(f"  #{s['index']:02d} [{s['type'].upper()}]: {s['content']}")
+            st = s.get("type", "").upper()
+            lh = s.get("leaf_hash", "")[:12] + "..."
+            content = s.get("content", "").replace("\n", " ")[:36]
+            print(f"#{s.get('index', 0):<3} {st:<12} {lh:<16} {content}")
         print("==================================================================")
 
         if args.html:
-            html = render_html_report(receipt, output_file=args.html)
+            render_html_report(receipt, output_file=args.html)
             print(f"Interactive HTML dossier generated: {args.html}")
 
     elif args.command == "report":
         with open(args.receipt_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        html = render_html_report(data, output_file=args.html)
+        render_html_report(data, output_file=args.html)
         print(f"Interactive HTML dossier generated: {args.html}")
 
     elif args.command == "verify":
@@ -138,16 +177,28 @@ def main() -> None:
             data = json.load(f)
         receipt = WitnessReceipt(**data)
 
-        log_inst = TransparencyLog(log_dir=args.log_dir) if args.log_dir else None
-        con_receipt = None
+        log_inst = None
+        if args.log_dir:
+            log_inst = TransparencyLog(log_dir=args.log_dir)
+
+        consensus_rec = None
         if args.consensus:
             with open(args.consensus, "r", encoding="utf-8") as f:
-                con_receipt = json.load(f)
+                cdata = json.load(f)
+            consensus_rec = ConsensusReceipt(
+                version=cdata["version"],
+                trajectory_id=cdata["trajectory_id"],
+                merkle_root=cdata["merkle_root"],
+                step_count=cdata["step_count"],
+                threshold=cdata["threshold"],
+                attestations=[AgentAttestation(**a) for a in cdata["attestations"]],
+                timestamp=cdata.get("timestamp", 0.0),
+            )
 
         report = verify_trajectory_integrity(
             receipt=receipt,
             transparency_log=log_inst,
-            consensus_receipt=con_receipt,
+            consensus_receipt=consensus_rec,
             expected_prompt_hash=args.prompt_hash,
         )
 
@@ -157,9 +208,8 @@ def main() -> None:
             print(report.to_text())
 
         if args.html:
-            html = render_html_report(receipt.to_dict())
-            Path(args.html).write_text(html, encoding="utf-8")
-            print(f"\nInteractive HTML dossier exported to: {args.html}")
+            render_html_report(data, output_file=args.html)
+            print(f"\nAudit dossier written to {args.html}")
 
         if not report.is_valid:
             sys.exit(1)
@@ -171,6 +221,98 @@ def main() -> None:
             log_dir=args.log_dir,
         )
         server.run_stdio()
+
+    elif args.command == "redact":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        step_indices = None
+        if args.steps:
+            step_indices = [int(x.strip()) for x in args.steps.split(",") if x.strip()]
+
+        redacted_rec = RedactionEngine.redact_receipt(
+            receipt=data,
+            redact_steps=step_indices,
+            redact_reason=args.reason,
+        )
+
+        is_valid, msg = RedactionEngine.verify_selective_disclosure(redacted_rec)
+
+        p = Path(args.output)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(redacted_rec.to_dict(), indent=2), encoding="utf-8")
+
+        print("==================================================================")
+        print(" SELECTIVE DISCLOSURE REDACTION ENGINE")
+        print("==================================================================")
+        print(f"Original Receipt:      {args.receipt_file}")
+        print(f"Redacted Output:       {args.output}")
+        print(f"Redacted Step Indices: {redacted_rec.redacted_step_indices}")
+        print(f"Merkle Root Preserved: {redacted_rec.merkle_root}")
+        print(f"Cryptographic Status:  {'VALID' if is_valid else 'INVALID'} ({msg})")
+        print("==================================================================")
+        if not is_valid:
+            sys.exit(1)
+
+    elif args.command == "policy":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        rules = [
+            MaxStepsRule(max_steps=args.max_steps),
+            RequiredApprovalRule(),
+            ExecutionDurationRule(),
+            StepRepetitionRule(),
+        ]
+        if args.disallowed_tools:
+            banned = [t.strip() for t in args.disallowed_tools.split(",") if t.strip()]
+            rules.append(DisallowedToolsRule(blacklisted_tools=banned))
+        else:
+            rules.append(DisallowedToolsRule())
+
+        if args.allowed_models:
+            models = [m.strip() for m in args.allowed_models.split(",") if m.strip()]
+            rules.append(ModelWhitelistRule(allowed_models=models))
+
+        guard = PolicyGuard(rules=rules)
+        report = guard.evaluate(data)
+
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(report.to_text())
+
+        if not report.is_compliant:
+            sys.exit(1)
+
+    elif args.command == "batch-anchor":
+        engine = BatchAnchorEngine(epoch_id=args.epoch_id)
+        for rf in args.receipt_files:
+            with open(rf, "r", encoding="utf-8") as f:
+                engine.add_receipt(json.load(f))
+
+        batch_receipt, proofs = engine.build_batch()
+
+        print("==================================================================")
+        print(" EPOCH BATCH MERKLE ANCHOR ENGINE")
+        print("==================================================================")
+        print(f"Epoch ID:           {batch_receipt.epoch_id}")
+        print(f"Receipt Count:      {batch_receipt.receipt_count}")
+        print(f"Epoch Merkle Root:  {batch_receipt.epoch_root}")
+        print(f"Signer Pubkey:      {batch_receipt.signer_pubkey}")
+        print(f"Batch Signature:    {batch_receipt.signature[:32]}...")
+
+        if args.evm or not args.solana:
+            print(f"\n[EVM Calldata]\n{batch_receipt.to_evm_calldata()}")
+        if args.solana or not args.evm:
+            print(f"\n[Solana Memo Payload]\n{batch_receipt.to_solana_memo()}")
+        print("==================================================================")
+
+        if args.output:
+            p = Path(args.output)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(batch_receipt.to_dict(), indent=2), encoding="utf-8")
+            print(f"Batch receipt saved to: {args.output}")
 
     elif args.command == "export-proof":
         with open(args.receipt_file, "r", encoding="utf-8") as f:

@@ -289,5 +289,68 @@ def test_cli_mcp_command_stdio():
     assert proc.returncode == 0
     res = json.loads(stdout.strip())
     assert res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert res["result"]["serverInfo"]["version"] == "0.4.0"
+    assert res["result"]["serverInfo"]["version"] == "0.5.0"
 
+
+
+def test_cli_v050_commands():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("cli-v5-agent", "gpt-4o", "System Prompt V5")
+    engine.record_step(StepType.OBSERVATION, "Received request")
+    engine.record_step(StepType.THOUGHT, "Secret key: sk_live_112233445566")
+    engine.record_step(StepType.DECISION, "Approved request")
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness", delete=False) as tf:
+        json.dump(receipt.to_dict(), tf)
+        rf_path = tf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".redacted.json", delete=False) as rf:
+        red_path = rf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".batch.json", delete=False) as bf:
+        batch_path = bf.name
+
+    try:
+        # 1. Redact command
+        res_red = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "redact", rf_path, "--steps", "1", "--output", red_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_red.returncode == 0
+        assert "SELECTIVE DISCLOSURE REDACTION ENGINE" in res_red.stdout
+        assert "Cryptographic Status:  VALID" in res_red.stdout
+
+        # 2. Policy command (Pass)
+        res_pol = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "policy", rf_path, "--max-steps", "50"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_pol.returncode == 0
+        assert "AGENT WITNESS POLICY COMPLIANCE REPORT" in res_pol.stdout
+        assert "Overall Verdict:    COMPLIANT" in res_pol.stdout
+
+        # 3. Batch anchor command
+        res_anc = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "batch-anchor", rf_path, "--epoch-id", "epoch_test_v5", "--output", batch_path, "--evm", "--solana"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_anc.returncode == 0
+        assert "EPOCH BATCH MERKLE ANCHOR ENGINE" in res_anc.stdout
+        assert "Epoch ID:           epoch_test_v5" in res_anc.stdout
+        assert "0x23a6f44d" in res_anc.stdout
+        assert "AW:EPOCH:epoch_test_v5:" in res_anc.stdout
+    finally:
+        Path(rf_path).unlink(missing_ok=True)
+        Path(red_path).unlink(missing_ok=True)
+        Path(batch_path).unlink(missing_ok=True)

@@ -3,6 +3,7 @@ agent-witness: Cryptographic action attestation & Merkle audit receipts
 for autonomous AI agents.
 """
 
+from .batch_anchor import BatchAnchorEngine, BatchInclusionProof, EpochBatchReceipt
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .eip712 import EIP712Domain, compute_eip712_digest, hash_witness_receipt, keccak256
 from .html_report import render_html_report
@@ -23,12 +24,25 @@ from .models import (
     StepType,
     WitnessReceipt,
 )
+from .policy import (
+    DisallowedToolsRule,
+    ExecutionDurationRule,
+    MaxStepsRule,
+    ModelWhitelistRule,
+    PolicyEvaluationReport,
+    PolicyGuard,
+    PolicyRule,
+    PolicyViolation,
+    RequiredApprovalRule,
+    StepRepetitionRule,
+)
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
+from .redaction import RedactionEngine, SaltedCommitment, SelectiveDisclosureReceipt
 from .signer import AgentSigner
 from .verifier import AuditCheck, TrajectoryAuditReport, verify_trajectory_integrity
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -66,4 +80,21 @@ __all__ = [
     "verify_trajectory_integrity",
     "TrajectoryAuditReport",
     "AuditCheck",
+    # v0.5.0 extensions:
+    "RedactionEngine",
+    "SelectiveDisclosureReceipt",
+    "SaltedCommitment",
+    "PolicyGuard",
+    "PolicyRule",
+    "PolicyViolation",
+    "PolicyEvaluationReport",
+    "MaxStepsRule",
+    "DisallowedToolsRule",
+    "RequiredApprovalRule",
+    "ExecutionDurationRule",
+    "ModelWhitelistRule",
+    "StepRepetitionRule",
+    "BatchAnchorEngine",
+    "EpochBatchReceipt",
+    "BatchInclusionProof",
 ]

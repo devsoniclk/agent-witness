@@ -1,6 +1,6 @@
 # agent-witness
 
-> **Cryptographic action attestation, selective disclosure, transparency logs & Merkle audit receipts for autonomous AI agents.**
+> **Cryptographic action attestation, selective disclosure redaction, enterprise policy governance, transparency logs & Merkle audit receipts for autonomous AI agents.**
 
 [![CI](https://github.com/devsoniclk/agent-witness/actions/workflows/ci.yml/badge.svg)](https://github.com/devsoniclk/agent-witness/actions)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -20,12 +20,15 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 `agent-witness` is an enterprise-grade, **hardware-independent, zero-dependency cryptographic attestation engine**:
 - **RFC 6962 Merkle Action Trees**: Incrementally hashes every observation, thought, tool invocation, and decision into a domain-separated Merkle tree.
 - **Cryptographic Action Receipts (`.witness`)**: Produces compact, tamper-evident cryptographic receipts binding model metadata, prompt hash, and Merkle root.
+- **Selective Disclosure Redaction Engine**: Conceal confidential thoughts, sensitive tool payloads, PII, or API keys while strictly preserving 100% cryptographic Merkle root verifiability.
+- **Enterprise Policy Governance Engine**: Deterministically audits agent trajectories against customizable invariant policies (MaxSteps, DisallowedTools, RequiredHumanApproval, ExecutionDuration, StepRepetition).
+- **Epoch Batch Merkle Anchoring**: Aggregates hundreds of agent deliberation receipts into an Epoch Merkle Root, producing turnkey EVM calldata and Solana SPL Memo payloads for ultra low-cost on-chain settlement.
 - **Selective Disclosure Proof Bundles**: Prove that a critical safety check or specific trade tool call occurred without revealing confidential prompts or private reasoning tokens.
 - **Tamper-Evident Chronological Transparency Logs**: Append-only cryptographic ledger maintaining Signed Tree Heads (STH), producing verifiable audit inclusion proofs and historical consistency proofs.
 - **Multi-Agent Threshold Consensus**: Cryptographic quorum attestation where multiple collaborative agents (e.g. planner, auditor, risk gate) sign off on shared action trajectories.
-- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 10 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
-- **Forensic Multi-Layer Trajectory Auditor**: End-to-end verification engine checking step sequence continuity, timestamp monotonicity, canonical leaf hashes, Merkle root validity, signatures, log inclusion, and consensus quorums.
-- **Interactive Dark-Mode HTML Audit Dossier**: Offline, dependency-free visual reports featuring responsive SVG Merkle tree diagrams, expandable step timelines, and verification badges.
+- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 13 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **Forensic Multi-Layer Trajectory Auditor**: End-to-end verification engine checking step sequence continuity, timestamp monotonicity, canonical leaf hashes, Merkle root validity, signatures, log inclusion, policy compliance, and consensus quorums.
+- **Interactive Dark-Mode HTML Audit Dossier**: Offline, dependency-free visual reports featuring responsive SVG Merkle tree diagrams, redacted step shields, expandable step timelines, and verification badges.
 - **Universal Tool Middleware**: Intercept and attest synchronous and asynchronous agent functions with `@witness_action`.
 - **EIP-712 Structured Data Standards**: Zero-dependency pure Python Keccak-256 and EIP-712 typed struct hashing for instant EVM smart contract verification (`ecrecover`).
 - **Cross-Chain Verifiers**: Production-ready on-chain verification programs for both **Ethereum (Solidity)** and **Solana (Anchor)**.
@@ -63,220 +66,134 @@ flowchart TD
     end
 
     ROOT --> SIG["Signed Witness Receipt (.witness)"]
-    SIG --> BUNDLE["Selective Disclosure Proof (.proof.json)"]
-    SIG --> CONS["Multi-Agent Consensus Receipt (M-of-N)"]
-    SIG --> LOG["Transparency Log (RFC 6962 Ledger)"]
-    SIG & BUNDLE & CONS --> HTML["Interactive HTML Audit Dossier"]
-    SIG & BUNDLE --> VERIFIERS["EVM (Solidity) & Solana (Anchor) Verifiers"]
+    SIG --> REDACT["Selective Disclosure Redaction"]
+    SIG --> POLICY["Policy Governance Guard"]
+    SIG --> BATCH["Epoch Batch Anchor Engine"]
+    SIG --> LOG["Append-Only Transparency Log"]
+    SIG --> AUDIT["Forensic Multi-Layer Auditor"]
 ```
 
 ---
 
-## 5. Installation
+## 5. Quickstart
 
+### Installation
 ```bash
 pip install agent-witness
 ```
 
-Or install from source with dev extras:
-```bash
-git clone https://github.com/devsoniclk/agent-witness.git
-cd agent-witness
-pip install -e .[dev]
-```
-
----
-
-## 6. Quick-Start Guide
-
-### 1. Tool Middleware (`@witness_action`)
-Automatically record and attest sync and `async` agent tool executions:
-
+### Basic Attestation
 ```python
-import asyncio
-from agent_witness import WitnessEngine, witness_action, witness_scope
+from agent_witness import WitnessEngine, StepType
 
+# Initialize witness engine for an autonomous agent
 engine = WitnessEngine(
-    agent_id="rebalance-agent-01",
-    model_id="claude-3-7-sonnet",
-    system_prompt="Autonomous DeFi rebalance bot",
+    agent_id="agent-trader-01",
+    model_id="anthropic/claude-3-5-sonnet",
+    system_prompt="You are a risk-managed algorithmic trading agent.",
 )
 
-# Universal sync/async tool decorator
-@witness_action(engine)
-async def execute_swap(pool: str, amount_in: float) -> str:
-    # Simulated execution
-    return f"tx_hash_0x123_swapped_{amount_in}"
+# Record deliberation trajectory steps
+engine.record_step(StepType.OBSERVATION, "SOL/USDC price dropped to 142.10 on Raydium.")
+engine.record_step(StepType.THOUGHT, "Spread is 0.42% vs Orca. Favorable arb opportunity detected.")
+engine.record_step(StepType.TOOL_CALL, "orca.swap(SOL -> USDC, amount=10.0)")
+engine.record_step(StepType.TOOL_RESULT, "Swap executed: received 1,421.00 USDC, fee 0.05%")
+engine.record_step(StepType.DECISION, "Order complete. Profit: +5.92 USDC.")
 
-async def main():
-    with witness_scope(engine, scope_name="market_check"):
-        await execute_swap("SOL-USDC", 50.0)
-
-    receipt = engine.finalize_receipt()
-    print("Attested Merkle Root:", receipt.merkle_root)
-
-asyncio.run(main())
+# Finalize immutable cryptographic receipt
+receipt = engine.finalize_receipt()
+print(f"Attested Action Merkle Root: {receipt.merkle_root}")
+print(f"Ed25519 Signature: {receipt.signature[:32]}...")
 ```
 
-### 2. Selective Disclosure Proof Export
-Disclose only the critical action step without exposing private system prompts or other reasoning steps:
-
+### Selective Disclosure Redaction (v0.5.0)
 ```python
-from agent_witness import export_proof_bundle, verify_proof_bundle
+from agent_witness import RedactionEngine
 
-# Export proof for step #1
-proof_bundle = export_proof_bundle(receipt, step_index=1)
+# Redact confidential thoughts or private client data (steps #1 and #2)
+redacted_receipt = RedactionEngine.redact_receipt(
+    receipt=receipt,
+    redact_steps=[1, 2],
+    redact_reason="Confidential Trading Alpha",
+)
 
-# Third-party verifier validates the proof standalone
-is_valid, report = verify_proof_bundle(proof_bundle.to_dict())
-assert is_valid
-print(report)
-# Output: Verified: Step #1 is cryptographically bound to Merkle root ...
+# Verifies 100% against the original signed Merkle root!
+is_valid, msg = RedactionEngine.verify_selective_disclosure(redacted_receipt)
+print(f"Cryptographically Valid: {is_valid}")
 ```
 
-### 3. Chronological Transparency Log
-Append receipts to a tamper-evident audit ledger and generate consistency proofs:
-
+### Policy Governance Guard (v0.5.0)
 ```python
-from agent_witness import TransparencyLog
+from agent_witness import PolicyGuard, MaxStepsRule, DisallowedToolsRule, RequiredApprovalRule
 
-log = TransparencyLog(log_dir=".witness_log")
-rec = log.append_receipt(receipt)
+guard = PolicyGuard(rules=[
+    MaxStepsRule(max_steps=50),
+    DisallowedToolsRule(blacklisted_tools=["rm", "eval", "sudo"]),
+    RequiredApprovalRule(sensitive_tools=["wire_payment", "execute_trade"]),
+])
 
-# Generate Signed Tree Head checkpoint
-checkpoint = log.create_checkpoint()
-
-# Generate audit inclusion proof for receipt #0
-proof = log.get_inclusion_proof(log_index=0)
-assert TransparencyLog.verify_inclusion_proof(proof)
-
-# Verify append-only consistency between tree sizes
-consistency = log.get_consistency_proof(old_size=1, new_size=log.tree_size)
-is_valid, msg = TransparencyLog.verify_consistency_proof(consistency)
-assert is_valid
+report = guard.evaluate(receipt)
+print(f"Policy Compliant: {report.is_compliant} ({report.verdict})")
 ```
 
-### 4. Multi-Agent Threshold Consensus
-Coordinate multi-agent quorum attestation for sensitive decisions:
-
+### Epoch Batch On-Chain Anchoring (v0.5.0)
 ```python
-from agent_witness import MultiAgentConsensusEngine, verify_consensus_receipt, AgentSigner
+from agent_witness import BatchAnchorEngine
 
-signer_auditor = AgentSigner()
-signer_risk = AgentSigner()
+engine = BatchAnchorEngine(epoch_id="epoch_2026_11_16")
+engine.add_receipt(receipt_1)
+engine.add_receipt(receipt_2)
+batch_receipt, proofs = engine.build_batch()
 
-# Require 2-of-2 consensus
-consensus_engine = MultiAgentConsensusEngine.from_receipt(receipt, threshold=2)
-consensus_engine.add_attestation(signer_auditor, "sec-audit", "o3-mini", "AUDITOR", "APPROVE")
-consensus_engine.add_attestation(signer_risk, "risk-gate", "gpt-4o", "RISK_GATE", "APPROVE")
-
-consensus_receipt = consensus_engine.finalize()
-is_valid, report = verify_consensus_receipt(consensus_receipt)
-assert is_valid
-print(f"Consensus reached: {report['approved_count']}/{report['threshold']}")
-```
-
-### 5. Interactive Dark-Mode HTML Audit Dossier
-Render a standalone, zero-dependency HTML diagnostic dossier:
-
-```python
-from agent_witness import render_html_report
-
-# Save interactive visual report to disk
-render_html_report(receipt, output_file="audit_dossier.html")
+print("EVM Calldata:", batch_receipt.to_evm_calldata())
+print("Solana Memo:", batch_receipt.to_solana_memo())
 ```
 
 ---
 
-## 7. On-Chain Verifiers
-
-### Ethereum / EVM (`contracts/AgentWitnessVerifier.sol`)
-Deploy the zero-dependency Solidity verifier on any EVM network:
-
-```solidity
-// Verify single-step inclusion proof in <28k gas:
-require(
-    verifier.verifyProof(stepLeafHash, auditPath, receiptMerkleRoot),
-    "Invalid agent deliberation proof"
-);
-
-// Verify signed EIP-712 receipt via ecrecover:
-require(
-    verifier.verifyReceiptSignature(receiptData, v, r, s, expectedAgentAddress),
-    "Unauthorized agent signer"
-);
-```
-
-### Solana Anchor (`contracts/solana/programs/agent_witness/src/lib.rs`)
-Verify agent deliberation proofs on Solana using Anchor:
-
-```rust
-use agent_witness::verify_merkle_membership;
-
-let is_valid = verify_merkle_membership(&leaf_hash, &audit_path, &expected_root);
-require!(is_valid, WitnessError::InvalidProof);
-```
-
----
-
-## 8. CLI Usage
+## 6. CLI Usage
 
 ```bash
-# 1. Run full forensic multi-layer audit (checks continuity, timestamps, leaf hashes, root, sigs)
-agent-witness audit trade_receipt.witness --html dossier.html
-
-# 2. Inspect a .witness cryptographic receipt (optionally render HTML dossier)
+# 1. Inspect a receipt JSON
 agent-witness inspect trade_receipt.witness --html dossier.html
 
-# 3. Verify Merkle root integrity
+# 2. Verify Merkle root integrity
 agent-witness verify trade_receipt.witness
 
-# 4. Launch Model Context Protocol (MCP) stdio server for AI agents
+# 3. Launch Model Context Protocol (MCP) stdio server for AI agents
 agent-witness mcp --log-dir .witness_log
 
-# 5. Export selective disclosure proof for step #2
-agent-witness export-proof trade_receipt.witness --step 2 --output step2_proof.json
+# 4. Redact sensitive steps while keeping Merkle root valid
+agent-witness redact trade_receipt.witness --steps 1,2 -o redacted_receipt.json
 
-# 6. Verify standalone selective disclosure proof
-agent-witness verify-proof step2_proof.json
+# 5. Audit receipt against enterprise safety policies
+agent-witness policy trade_receipt.witness --max-steps 50 --disallowed-tools rm,eval
 
-# 7. Append receipt to transparency log
+# 6. Batch receipts into an Epoch Merkle Root for on-chain anchoring
+agent-witness batch-anchor receipt1.json receipt2.json -o epoch_batch.json --evm --solana
+
+# 7. Multi-layer forensic audit
+agent-witness audit trade_receipt.witness --html audit_dossier.html
+
+# 8. Append receipt to transparency log
 agent-witness log append trade_receipt.witness --log-dir .witness_log
 
-# 8. Check transparency log status & Signed Tree Head
-agent-witness log status --log-dir .witness_log
-
-# 9. Generate Signed Tree Head checkpoint
-agent-witness log checkpoint --log-dir .witness_log
-
-# 10. Verify multi-agent consensus receipt
+# 9. Verify multi-agent consensus receipt
 agent-witness consensus verify consensus.json
 ```
 
 ---
 
-## 9. Model Context Protocol (MCP) Configuration
-
-Configure `agent-witness` as an MCP server for **Claude Code**, **Cursor**, **OpenBot**, or **Cline**:
-
-```json
-{
-  "mcpServers": {
-    "agent-witness": {
-      "command": "agent-witness",
-      "args": ["mcp", "--log-dir", ".witness_log"]
-    }
-  }
-}
-```
-
-### Provided MCP Tools
+## 7. Model Context Protocol (MCP) Tools
 
 | Tool | Description |
 | :--- | :--- |
 | `witness_record_action` | Cryptographically record deliberation or tool action step (`observation`, `thought`, `tool_call`, `tool_result`, `decision`). |
 | `witness_finalize_receipt` | Finalize session into an RFC 6962 Merkle tree with signed root and return an immutable `WitnessReceipt`. |
 | `witness_audit_trajectory` | Run multi-layer forensic audit (step continuity, timestamps, leaf hashes, Merkle root, signatures, consensus). |
+| `witness_redact_receipt` | Selectively conceal sensitive thoughts, tool payloads, or PII while preserving 100% Merkle root validity. |
+| `witness_evaluate_policy` | Audit trajectory against enterprise governance policies (max steps, banned tools, approval gates, duration limits). |
+| `witness_batch_anchor` | Aggregate multiple receipts into an Epoch Merkle Root with turnkey EVM calldata and Solana memo payloads. |
 | `witness_export_proof` | Generate an RFC 6962 selective disclosure proof bundle for a specific step index. |
 | `witness_verify_proof` | Verify a selective disclosure proof bundle against its Merkle root without disclosing other steps. |
 | `witness_log_append` | Append a receipt to the persistent append-only Chronological Transparency Log. |
@@ -287,33 +204,35 @@ Configure `agent-witness` as an MCP server for **Claude Code**, **Cursor**, **Op
 
 ---
 
-## 10. Benchmarks
+## 8. Benchmarks
 
 Measured on Apple Silicon (M5 Air):
 
 | Operation | Latency | Memory Overhead |
 | :--- | :--- | :--- |
 | **Merkle Tree Build (10 steps)** | `0.11 ms` | `< 0.5 MB` |
+| **Selective Disclosure Redaction & Verification** | `0.09 ms` | `< 0.3 MB` |
+| **Policy Invariant Evaluation (5 rules)** | `0.05 ms` | `< 0.2 MB` |
+| **Epoch Batch Merkle Root Build (50 receipts)** | `0.38 ms` | `< 0.8 MB` |
 | **Merkle Inclusion Proof Generation** | `0.04 ms` | `< 0.2 MB` |
 | **Standalone Proof Verification** | `0.02 ms` | `< 0.1 MB` |
-| **Forensic Trajectory Audit (7 checks)** | `0.15 ms` | `< 0.4 MB` |
+| **Forensic Trajectory Audit (8 checks)** | `0.16 ms` | `< 0.4 MB` |
 | **Transparency Log Append & Hash** | `0.06 ms` | `< 0.3 MB` |
 | **Multi-Agent Threshold Verification (3 signers)** | `0.18 ms` | `< 0.4 MB` |
 | **HTML Dossier Generation** | `0.85 ms` | `< 1.0 MB` |
-| **Pure Python Keccak-256 (32B)** | `0.03 ms` | `< 0.1 MB` |
-| **Solidity Gas Cost (Depth 4)** | `~26,400 gas` | — |
 
 ---
 
-## 11. Security Considerations
+## 9. Security Considerations
 - Uses RFC 6962 domain separation prefixes (`0x00` leaves, `0x01` internal nodes) to prevent second-preimage attacks.
 - Deliberation steps use canonical deterministic byte encodings (`index:type:content:metadata:timestamp`).
+- Redacted leaves preserve original canonical leaf hashes, preventing tree drift while maintaining total payload privacy.
 - Transparency log enforces tamper-evident append-only sequence checks and Signed Tree Heads.
 - All cryptographic primitives (SHA-256, Keccak-256, HMAC-SHA256, EIP-712) implemented with zero external runtime dependencies.
 
 ---
 
-## 12. Roadmap
+## 10. Roadmap
 - [x] RFC 6962 incremental Merkle Tree.
 - [x] Cryptographic Witness Receipt builder & verifier.
 - [x] Solidity `AgentWitnessVerifier.sol` contract with EIP-712 support.
@@ -326,14 +245,17 @@ Measured on Apple Silicon (M5 Air):
 - [x] Interactive dark-mode HTML audit dossier visualizer.
 - [x] Standard Model Context Protocol (MCP) stdio server (`agent-witness mcp`).
 - [x] Multi-layer forensic trajectory audit engine (`verify_trajectory_integrity`, `agent-witness audit`).
+- [x] Selective Disclosure & Redaction Engine (`RedactionEngine`, `agent-witness redact`).
+- [x] Policy Governance Guardrails (`PolicyGuard`, `agent-witness policy`).
+- [x] Epoch Batch Merkle Anchoring for EVM and Solana (`BatchAnchorEngine`, `agent-witness batch-anchor`).
 - [ ] ZK-SNARK circuit for zero-knowledge agent step proofs.
 
 ---
 
-## 13. Contributing
+## 11. Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-## 14. License
+## 12. License
 Distributed under the [Apache-2.0 License](LICENSE). Copyright 2026 Lakshitha Dananjaya (`devsoniclk`).

@@ -79,12 +79,13 @@ def verify_trajectory_integrity(
     transparency_log: Optional[TransparencyLog] = None,
     consensus_receipt: Optional[ConsensusReceipt | Dict[str, Any]] = None,
     expected_prompt_hash: Optional[str] = None,
+    policy_guard: Optional[Any] = None,
 ) -> TrajectoryAuditReport:
     """
     Performs end-to-end cryptographic and forensic verification of an agent deliberation trajectory.
     Audits step sequence continuity, temporal monotonicity, canonical RFC 6962 leaf hashes,
     Merkle action tree root integrity, agent signature authenticity, transparency log inclusion,
-    and multi-agent threshold consensus quorums.
+    selective disclosure redactions, policy guardrails, and multi-agent threshold consensus quorums.
     """
     if isinstance(receipt, dict):
         rec = WitnessReceipt(
@@ -169,33 +170,53 @@ def verify_trajectory_integrity(
             metadata={"regressions": regressions},
         ))
 
-    # 4. Canonical RFC 6962 Leaf Hash Integrity
+    # 4. Canonical RFC 6962 Leaf Hash Integrity & Selective Disclosure
+    reconstructed_leaves: List[bytes] = []
     reconstructed_steps: List[DeliberationStep] = []
     leaf_hash_mismatches: List[int] = []
+    redacted_count = 0
 
     for s in rec.steps:
-        try:
-            st = DeliberationStep(
-                step_type=StepType(s["type"]),
-                index=s["index"],
-                content=s["content"],
-                metadata=s.get("metadata", {}),
-                timestamp=s.get("timestamp", 0.0),
-            )
-            recomputed_hash = compute_leaf_hash(st).hex()
-            recorded_hash = s.get("leaf_hash", "")
-            if recomputed_hash != recorded_hash:
-                leaf_hash_mismatches.append(s["index"])
-            reconstructed_steps.append(st)
-        except Exception as e:
-            leaf_hash_mismatches.append(s.get("index", -1))
+        is_redacted = s.get("is_redacted", False)
+        if is_redacted:
+            redacted_count += 1
+            leaf_hash_hex = s.get("leaf_hash", "")
+            if len(leaf_hash_hex) == 64:
+                try:
+                    reconstructed_leaves.append(bytes.fromhex(leaf_hash_hex))
+                except Exception:
+                    leaf_hash_mismatches.append(s.get("index", -1))
+            else:
+                leaf_hash_mismatches.append(s.get("index", -1))
+        else:
+            try:
+                st = DeliberationStep(
+                    step_type=StepType(s["type"]),
+                    index=s["index"],
+                    content=s["content"],
+                    metadata=s.get("metadata", {}),
+                    timestamp=s.get("timestamp", 0.0),
+                )
+                recomputed_hash = compute_leaf_hash(st).hex()
+                recorded_hash = s.get("leaf_hash", "")
+                if recomputed_hash != recorded_hash:
+                    leaf_hash_mismatches.append(s["index"])
+                reconstructed_leaves.append(compute_leaf_hash(st))
+                reconstructed_steps.append(st)
+            except Exception:
+                leaf_hash_mismatches.append(s.get("index", -1))
 
     if not leaf_hash_mismatches:
+        detail_msg = (
+            f"All {len(rec.steps)} steps match canonical RFC 6962 0x00 leaf hashes deterministically."
+            if redacted_count == 0
+            else f"All {len(rec.steps)} steps valid ({redacted_count} selectively redacted with preserved leaf commitments)."
+        )
         checks.append(AuditCheck(
             name="LEAF_HASH_INTEGRITY",
             status="PASS",
-            details=f"All {len(rec.steps)} steps match canonical RFC 6962 0x00 leaf hashes deterministically.",
-            metadata={"verified_leaves": len(rec.steps)},
+            details=detail_msg,
+            metadata={"verified_leaves": len(rec.steps), "redacted_leaves": redacted_count},
         ))
     else:
         failed_count += 1
@@ -207,7 +228,12 @@ def verify_trajectory_integrity(
         ))
 
     # 5. Merkle Action Tree Root Rebuilding
-    reconstructed_tree = MerkleTree(reconstructed_steps)
+    reconstructed_tree = MerkleTree.__new__(MerkleTree)
+    reconstructed_tree.steps = reconstructed_steps
+    reconstructed_tree.leaves = reconstructed_leaves
+    reconstructed_tree.levels = []
+    reconstructed_tree._build_tree()
+
     if reconstructed_tree.root_hex == rec.merkle_root:
         checks.append(AuditCheck(
             name="MERKLE_ROOT_VERIFICATION",
@@ -220,8 +246,8 @@ def verify_trajectory_integrity(
         checks.append(AuditCheck(
             name="MERKLE_ROOT_VERIFICATION",
             status="FAIL",
-            details=f"Merkle root mismatch: computed {reconstructed_tree.root_hex} != receipt {rec.merkle_root}.",
-            metadata={"computed_root": reconstructed_tree.root_hex, "receipt_root": rec.merkle_root},
+            details=f"Reconstructed root ({reconstructed_tree.root_hex}) diverges from attested root ({rec.merkle_root}).",
+            metadata={"reconstructed_root": reconstructed_tree.root_hex, "expected_root": rec.merkle_root},
         ))
 
     # 6. Cryptographic Signature Authenticity
@@ -244,7 +270,6 @@ def verify_trajectory_integrity(
                 metadata={"signature": rec.signature},
             ))
     else:
-        # Check non-empty signature format
         if len(rec.signature) >= 32:
             checks.append(AuditCheck(
                 name="SIGNATURE_AUTHENTICITY",
@@ -260,8 +285,8 @@ def verify_trajectory_integrity(
                 details="Empty or invalid signature hex string.",
             ))
 
-    # 7. System Prompt Hash Integrity
-    if expected_prompt_hash:
+    # 7. System Prompt Hash Invariant
+    if expected_prompt_hash is not None:
         if rec.system_prompt_hash == expected_prompt_hash:
             checks.append(AuditCheck(
                 name="SYSTEM_PROMPT_HASH",
@@ -352,6 +377,25 @@ def verify_trajectory_integrity(
                     details=f"Consensus quorum unsatisfied: {report['approved_count']}/{report['threshold']} approvals.",
                     metadata=report,
                 ))
+
+    # 10. Policy Compliance Evaluation
+    if policy_guard is not None:
+        pol_report = policy_guard.evaluate(rec)
+        if pol_report.is_compliant:
+            checks.append(AuditCheck(
+                name="POLICY_COMPLIANCE",
+                status="PASS",
+                details=f"All {pol_report.rules_checked} safety and execution policies satisfied ({pol_report.verdict}).",
+                metadata=pol_report.to_dict(),
+            ))
+        else:
+            failed_count += 1
+            checks.append(AuditCheck(
+                name="POLICY_COMPLIANCE",
+                status="FAIL",
+                details=f"Policy compliance failed: {pol_report.total_violations} violations detected across {pol_report.rules_checked} rules.",
+                metadata=pol_report.to_dict(),
+            ))
 
     is_overall_valid = (failed_count == 0)
     summary_verdict = (
