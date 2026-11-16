@@ -26,7 +26,10 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 - **Selective Disclosure Proof Bundles**: Prove that a critical safety check or specific trade tool call occurred without revealing confidential prompts or private reasoning tokens.
 - **Tamper-Evident Chronological Transparency Logs**: Append-only cryptographic ledger maintaining Signed Tree Heads (STH), producing verifiable audit inclusion proofs and historical consistency proofs.
 - **Multi-Agent Threshold Consensus**: Cryptographic quorum attestation where multiple collaborative agents (e.g. planner, auditor, risk gate) sign off on shared action trajectories.
-- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 13 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **Multi-Chain Anchor Dispatcher**: Generates cross-chain anchor transaction payloads across Solana Anchor state programs (with PDA derivation) and EVM L1/L2 contracts with threshold quorum attestation.
+- **Streaming Action Session & Continuous Deliberation Provenance**: Incremental rolling Merkle frontier accumulator with O(1) amortized leaf addition and causal thought-to-action grounding audits.
+- **Automated Compliance & Anomaly Detector**: Real-time evaluation of action streams for velocity bursts, cumulative value-at-risk caps, authority drift, and temporal clock skews.
+- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 16 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
 - **Forensic Multi-Layer Trajectory Auditor**: End-to-end verification engine checking step sequence continuity, timestamp monotonicity, canonical leaf hashes, Merkle root validity, signatures, log inclusion, policy compliance, and consensus quorums.
 - **Interactive Dark-Mode HTML Audit Dossier**: Offline, dependency-free visual reports featuring responsive SVG Merkle tree diagrams, redacted step shields, expandable step timelines, and verification badges.
 - **Universal Tool Middleware**: Intercept and attest synchronous and asynchronous agent functions with `@witness_action`.

@@ -4,6 +4,7 @@ for autonomous AI agents.
 """
 
 from .batch_anchor import BatchAnchorEngine, BatchInclusionProof, EpochBatchReceipt
+from .compliance import AnomalyIncident, ComplianceAnomalyDetector, ComplianceAuditReport
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .eip712 import EIP712Domain, compute_eip712_digest, hash_witness_receipt, keccak256
 from .html_report import render_html_report
@@ -24,6 +25,12 @@ from .models import (
     StepType,
     WitnessReceipt,
 )
+from .multichain import (
+    CrossChainAttestationBundle,
+    EVMAnchorPayload,
+    MultiChainAnchorDispatcher,
+    SolanaAnchorPayload,
+)
 from .policy import (
     DisallowedToolsRule,
     ExecutionDurationRule,
@@ -40,9 +47,15 @@ from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .redaction import RedactionEngine, SaltedCommitment, SelectiveDisclosureReceipt
 from .signer import AgentSigner
+from .streaming import (
+    CausalProvenanceRecord,
+    DeliberationProvenanceTracker,
+    StreamingActionSession,
+    StreamingStepReceipt,
+)
 from .verifier import AuditCheck, TrajectoryAuditReport, verify_trajectory_integrity
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -97,4 +110,16 @@ __all__ = [
     "BatchAnchorEngine",
     "EpochBatchReceipt",
     "BatchInclusionProof",
+    # v0.6.0 extensions:
+    "MultiChainAnchorDispatcher",
+    "SolanaAnchorPayload",
+    "EVMAnchorPayload",
+    "CrossChainAttestationBundle",
+    "StreamingActionSession",
+    "StreamingStepReceipt",
+    "DeliberationProvenanceTracker",
+    "CausalProvenanceRecord",
+    "ComplianceAnomalyDetector",
+    "ComplianceAuditReport",
+    "AnomalyIncident",
 ]

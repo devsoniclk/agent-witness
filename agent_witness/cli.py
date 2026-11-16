@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .batch_anchor import BatchAnchorEngine
+from .compliance import ComplianceAnomalyDetector
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .html_report import render_html_report
 from .log import TransparencyLog
 from .mcp_server import WitnessMCPServer
 from .models import AgentAttestation, ConsensusReceipt, DeliberationStep, ProofBundle, StepType, WitnessReceipt
+from .multichain import MultiChainAnchorDispatcher
 from .policy import (
     DisallowedToolsRule,
     ExecutionDurationRule,
@@ -25,6 +27,7 @@ from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .redaction import RedactionEngine
 from .signer import AgentSigner
+from .streaming import StreamingActionSession
 from .verifier import verify_trajectory_integrity
 
 
@@ -86,6 +89,22 @@ def main() -> None:
     p_anc.add_argument("--output", "-o", help="Optional output path to save batch receipt.")
     p_anc.add_argument("--evm", action="store_true", help="Display EVM calldata.")
     p_anc.add_argument("--solana", action="store_true", help="Display Solana SPL memo payload.")
+
+    # multichain-anchor (v0.6.0)
+    p_mc = subparsers.add_parser("multichain-anchor", help="Generate cross-chain anchor payloads across Solana and EVM.")
+    p_mc.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+    p_mc.add_argument("--chains", default="solana,base,arbitrum", help="Comma-separated chain list.")
+    p_mc.add_argument("--quorum", type=int, default=2, help="Threshold quorum required.")
+    p_mc.add_argument("--output", "-o", help="Optional output path to save attestation bundle.")
+    p_mc.add_argument("--json", action="store_true", help="Output bundle as JSON.")
+
+    # compliance (v0.6.0)
+    p_comp = subparsers.add_parser("compliance", help="Evaluate velocity, risk cap, and temporal compliance anomalies.")
+    p_comp.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+    p_comp.add_argument("--max-velocity", type=float, default=60.0, help="Max steps per minute.")
+    p_comp.add_argument("--max-value", type=float, default=10000.0, help="Max cumulative financial value.")
+    p_comp.add_argument("--expected-authority", help="Expected agent authority identifier or pubkey.")
+    p_comp.add_argument("--json", action="store_true", help="Output compliance report as JSON.")
 
     # export-proof
     p_exp = subparsers.add_parser("export-proof", help="Export selective disclosure proof for a single step.")
@@ -313,6 +332,74 @@ def main() -> None:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(batch_receipt.to_dict(), indent=2), encoding="utf-8")
             print(f"Batch receipt saved to: {args.output}")
+
+    elif args.command == "multichain-anchor":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        root = data.get("merkle_root") or data.get("epoch_root")
+        chain_list = [c.strip() for c in args.chains.split(",") if c.strip()]
+        dispatcher = MultiChainAnchorDispatcher()
+        bundle = dispatcher.create_cross_chain_bundle(
+            merkle_root=root,
+            identifier=Path(args.receipt_file).stem,
+            chains=chain_list,
+            quorum_threshold=args.quorum,
+        )
+
+        if args.json:
+            print(json.dumps(bundle.to_dict(), indent=2))
+        else:
+            print("==================================================================")
+            print(" CROSS-CHAIN ATTESTATION & ANCHOR DISPATCHER")
+            print("==================================================================")
+            print(f"Bundle ID:          {bundle.bundle_id}")
+            print(f"Merkle Root:        {bundle.merkle_root}")
+            print(f"Chains Anchored:    {', '.join(bundle.participating_chains)}")
+            print(f"Quorum Threshold:   {bundle.quorum_threshold} of {bundle.total_chains} (Verified: {bundle.verified})")
+            print(f"Signer Pubkey:      {bundle.signer_pubkey}")
+            if "solana" in bundle.anchors:
+                sol = bundle.anchors["solana"]
+                print(f"\n[Solana Anchor State]\n  PDA: {sol['pda_address']} (bump {sol['bump_seed']})\n  IX Data: {sol['instruction_data_hex'][:32]}...")
+            for ch in bundle.participating_chains:
+                if ch != "solana":
+                    evm = bundle.anchors[ch]
+                    print(f"\n[{evm['chain_name']} Calldata]\n  {evm['calldata_hex'][:50]}...")
+            print("==================================================================")
+
+        if args.output:
+            p = Path(args.output)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(bundle.to_dict(), indent=2), encoding="utf-8")
+            print(f"Cross-chain bundle saved to: {args.output}")
+
+    elif args.command == "compliance":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        receipt = WitnessReceipt(**data)
+        detector = ComplianceAnomalyDetector(
+            max_velocity_per_min=args.max_velocity,
+            max_cumulative_value=args.max_value,
+        )
+        report = detector.audit_receipt(receipt, expected_authority=args.expected_authority)
+
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print("==================================================================")
+            print(" COMPLIANCE & ANOMALY EVALUATION")
+            print("==================================================================")
+            print(f"Report ID:          {report.report_id}")
+            print(f"Compliance Status:  {'COMPLIANT' if report.is_compliant else 'NON-COMPLIANT'}")
+            print(f"Risk Score:         {report.risk_score:.1f} / 100.0")
+            print(f"Total Steps:        {report.total_steps_checked}")
+            print(f"Tracked Value:      ${report.cumulative_value_tracked:.2f}")
+            print(f"Incidents Detected: {len(report.incidents)}")
+            for inc in report.incidents:
+                print(f"  [{inc.severity}] {inc.incident_type} (Step {inc.step_index}): {inc.description}")
+            print("==================================================================")
+
+        if not report.is_compliant:
+            sys.exit(1)
 
     elif args.command == "export-proof":
         with open(args.receipt_file, "r", encoding="utf-8") as f:

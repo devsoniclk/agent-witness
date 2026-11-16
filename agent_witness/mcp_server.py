@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .batch_anchor import BatchAnchorEngine, EpochBatchReceipt
+from .compliance import ComplianceAnomalyDetector
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .html_report import render_html_report
 from .log import TransparencyLog
@@ -18,6 +19,7 @@ from .models import (
     StepType,
     WitnessReceipt,
 )
+from .multichain import MultiChainAnchorDispatcher
 from .policy import (
     DisallowedToolsRule,
     ExecutionDurationRule,
@@ -30,6 +32,7 @@ from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .redaction import RedactionEngine
 from .signer import AgentSigner
+from .streaming import StreamingActionSession
 from .verifier import verify_trajectory_integrity
 
 
@@ -63,6 +66,9 @@ class WitnessMCPServer:
         self.last_receipt: Optional[WitnessReceipt] = None
         self.log = TransparencyLog(log_dir=self.log_dir, signer=self.signer)
         self.active_consensus: Dict[str, MultiAgentConsensusEngine] = {}
+        self.active_sessions: Dict[str, StreamingActionSession] = {}
+        self.multichain_dispatcher = MultiChainAnchorDispatcher(signer=self.signer)
+        self.compliance_detector = ComplianceAnomalyDetector(signer=self.signer)
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         return [
@@ -336,6 +342,93 @@ class WitnessMCPServer:
                         },
                     },
                     "required": ["receipt_files"],
+                },
+            },
+            {
+                "name": "witness_anchor_multichain",
+                "description": "Generate cross-chain anchor transaction payloads across Solana Anchor state programs (with PDA derivation) and EVM L1/L2 contracts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_file": {
+                            "type": "string",
+                            "description": "Optional path to receipt file. Defaults to last finalized receipt.",
+                        },
+                        "merkle_root": {
+                            "type": "string",
+                            "description": "Optional direct 32-byte Merkle root hex string.",
+                        },
+                        "identifier": {
+                            "type": "string",
+                            "description": "Identifier for epoch or session (default: 'epoch-default').",
+                        },
+                        "chains": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Chains to generate anchor payloads for (e.g. ['solana', 'base', 'arbitrum']).",
+                        },
+                        "quorum_threshold": {
+                            "type": "integer",
+                            "description": "Threshold number of chains required for cross-chain quorum (default: 2).",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "witness_session_stream",
+                "description": "Append an action to an incremental streaming action session, computing dynamic rolling Merkle frontier roots with O(1) amortized cost.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Unique session identifier.",
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": ["append", "status"],
+                            "description": "Action to perform (default: 'append').",
+                        },
+                        "step_type": {
+                            "type": "string",
+                            "enum": ["observation", "thought", "tool_call", "tool_result", "decision"],
+                            "description": "Type of step to append.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Content of the step.",
+                        },
+                        "metadata": {
+                            "type": "object",
+                            "description": "Optional step metadata.",
+                        },
+                    },
+                    "required": ["session_id"],
+                },
+            },
+            {
+                "name": "witness_audit_compliance",
+                "description": "Perform automated compliance and anomaly evaluation (velocity bursts, cumulative asset value limits, authority drift, timestamp skews).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_file": {
+                            "type": "string",
+                            "description": "Optional path to receipt file. Defaults to last finalized receipt.",
+                        },
+                        "max_velocity_per_min": {
+                            "type": "number",
+                            "description": "Maximum allowed action steps per minute (default: 60.0).",
+                        },
+                        "max_cumulative_value": {
+                            "type": "number",
+                            "description": "Maximum cumulative financial asset transfer limit (default: 10000.0).",
+                        },
+                        "expected_authority": {
+                            "type": "string",
+                            "description": "Expected agent public key or authority identifier.",
+                        },
+                    },
                 },
             },
         ]
@@ -629,6 +722,95 @@ class WitnessMCPServer:
                     "signature": batch_receipt.signature,
                 }
 
+            elif tool_name == "witness_anchor_multichain":
+                merkle_root = arguments.get("merkle_root")
+                if not merkle_root:
+                    rec = self._resolve_receipt(arguments)
+                    if rec:
+                        merkle_root = rec.merkle_root
+                    else:
+                        return {"error": "Must provide either merkle_root or receipt_file"}
+
+                identifier = arguments.get("identifier", "epoch-default")
+                chains = arguments.get("chains")
+                threshold = int(arguments.get("quorum_threshold", 2))
+
+                bundle = self.multichain_dispatcher.create_cross_chain_bundle(
+                    merkle_root=merkle_root,
+                    identifier=identifier,
+                    chains=chains,
+                    quorum_threshold=threshold,
+                )
+                return {
+                    "status": "cross_chain_anchored",
+                    "bundle_id": bundle.bundle_id,
+                    "merkle_root": bundle.merkle_root,
+                    "participating_chains": bundle.participating_chains,
+                    "quorum_threshold": bundle.quorum_threshold,
+                    "verified": bundle.verified,
+                    "anchors": bundle.anchors,
+                    "signature": bundle.signature,
+                }
+
+            elif tool_name == "witness_session_stream":
+                session_id = arguments["session_id"]
+                action = arguments.get("action", "append")
+
+                if session_id not in self.active_sessions:
+                    self.active_sessions[session_id] = StreamingActionSession(
+                        session_id=session_id,
+                        agent_id=self.agent_id,
+                        signer=self.signer,
+                    )
+                session = self.active_sessions[session_id]
+
+                if action == "status":
+                    return session.get_session_summary()
+
+                step_type_str = arguments.get("step_type", "thought")
+                step_type = StepType(step_type_str)
+                content = arguments.get("content", "")
+                metadata = arguments.get("metadata") or {}
+
+                rec = session.append_step(step_type=step_type, content=content, metadata=metadata)
+                return {
+                    "session_id": session_id,
+                    "step_index": rec.step_index,
+                    "step_type": rec.step_type,
+                    "leaf_hash": rec.leaf_hash,
+                    "rolling_merkle_root": rec.rolling_merkle_root,
+                    "time_delta_ms": rec.time_delta_ms,
+                    "total_steps": len(session.steps),
+                    "signature": rec.signature,
+                }
+
+            elif tool_name == "witness_audit_compliance":
+                receipt = self._resolve_receipt(arguments)
+                if not receipt:
+                    return {"error": "No receipt available to audit. Finalize a session or provide receipt_file."}
+
+                vel = float(arguments.get("max_velocity_per_min", 60.0))
+                val_cap = float(arguments.get("max_cumulative_value", 10000.0))
+                expected_auth = arguments.get("expected_authority")
+
+                detector = ComplianceAnomalyDetector(
+                    max_velocity_per_min=vel,
+                    max_cumulative_value=val_cap,
+                    signer=self.signer,
+                )
+                report = detector.audit_receipt(receipt, expected_authority=expected_auth)
+
+                return {
+                    "report_id": report.report_id,
+                    "is_compliant": report.is_compliant,
+                    "risk_score": report.risk_score,
+                    "total_steps_checked": report.total_steps_checked,
+                    "cumulative_value_tracked": report.cumulative_value_tracked,
+                    "incidents_count": len(report.incidents),
+                    "incidents": [inc.to_dict() for inc in report.incidents],
+                    "signature": report.signature,
+                }
+
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
 
@@ -649,7 +831,7 @@ class WitnessMCPServer:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "agent-witness-mcp",
-                        "version": "0.5.0",
+                        "version": "0.6.0",
                     },
                 },
             }

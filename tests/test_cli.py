@@ -289,7 +289,7 @@ def test_cli_mcp_command_stdio():
     assert proc.returncode == 0
     res = json.loads(stdout.strip())
     assert res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert res["result"]["serverInfo"]["version"] == "0.5.0"
+    assert res["result"]["serverInfo"]["version"] == "0.6.0"
 
 
 
@@ -354,3 +354,49 @@ def test_cli_v050_commands():
         Path(rf_path).unlink(missing_ok=True)
         Path(red_path).unlink(missing_ok=True)
         Path(batch_path).unlink(missing_ok=True)
+
+
+def test_cli_v060_commands():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("cli-v6-agent", "gpt-4o", "System Prompt V6")
+    engine.record_step(StepType.OBSERVATION, "Telemetry normal")
+    engine.record_step(StepType.THOUGHT, "Planning execution")
+    engine.record_step(StepType.DECISION, "Execute trade", metadata={"amount_usd": 150.0})
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness", delete=False) as tf:
+        json.dump(receipt.to_dict(), tf)
+        rf_path = tf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".bundle.json", delete=False) as bf:
+        bundle_path = bf.name
+
+    try:
+        # 1. multichain-anchor command
+        res_mc = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "multichain-anchor", rf_path, "--chains", "solana,base", "--quorum", "2", "--output", bundle_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_mc.returncode == 0
+        assert "CROSS-CHAIN ATTESTATION & ANCHOR DISPATCHER" in res_mc.stdout
+        assert "Solana Anchor State" in res_mc.stdout
+        assert Path(bundle_path).exists()
+
+        # 2. compliance command
+        res_comp = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "compliance", rf_path, "--max-value", "5000"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_comp.returncode == 0
+        assert "COMPLIANCE & ANOMALY EVALUATION" in res_comp.stdout
+        assert "Compliance Status:  COMPLIANT" in res_comp.stdout
+    finally:
+        Path(rf_path).unlink(missing_ok=True)
+        Path(bundle_path).unlink(missing_ok=True)
