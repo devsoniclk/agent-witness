@@ -9,10 +9,12 @@ from typing import Any, Dict
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .html_report import render_html_report
 from .log import TransparencyLog
-from .models import ConsensusReceipt, DeliberationStep, ProofBundle, StepType, WitnessReceipt
+from .mcp_server import WitnessMCPServer
+from .models import AgentAttestation, ConsensusReceipt, DeliberationStep, ProofBundle, StepType, WitnessReceipt
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .signer import AgentSigner
+from .verifier import verify_trajectory_integrity
 
 
 def main() -> None:
@@ -35,6 +37,21 @@ def main() -> None:
     # verify
     p_ver = subparsers.add_parser("verify", help="Verify Merkle root integrity of a receipt.")
     p_ver.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+
+    # audit (v0.4.0)
+    p_aud = subparsers.add_parser("audit", help="Run comprehensive multi-layer forensic audit on a receipt.")
+    p_aud.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+    p_aud.add_argument("--log-dir", help="Optional transparency log directory to audit inclusion against.")
+    p_aud.add_argument("--consensus", help="Optional consensus receipt file to audit quorum against.")
+    p_aud.add_argument("--prompt-hash", help="Optional expected system prompt SHA-256 hash.")
+    p_aud.add_argument("--json", action="store_true", help="Output audit report as JSON.")
+    p_aud.add_argument("--html", help="Optional output path to generate an interactive HTML dossier.")
+
+    # mcp (v0.4.0)
+    p_mcp = subparsers.add_parser("mcp", help="Run JSON-RPC 2.0 stdio Model Context Protocol (MCP) server.")
+    p_mcp.add_argument("--log-dir", default=".witness_log", help="Transparency log directory (default: .witness_log).")
+    p_mcp.add_argument("--agent-id", default="agent-mcp-witness", help="Agent identifier.")
+    p_mcp.add_argument("--model-id", default="openbot-v1", help="Model identifier.")
 
     # export-proof
     p_exp = subparsers.add_parser("export-proof", help="Export selective disclosure proof for a single step.")
@@ -89,61 +106,71 @@ def main() -> None:
         print("==================================================================")
 
         if args.html:
-            render_html_report(receipt, output_file=args.html)
+            html = render_html_report(receipt, output_file=args.html)
             print(f"Interactive HTML dossier generated: {args.html}")
 
     elif args.command == "report":
         with open(args.receipt_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if "attestations" in data:
-            receipt = ConsensusReceipt(
-                version=data["version"],
-                trajectory_id=data["trajectory_id"],
-                merkle_root=data["merkle_root"],
-                step_count=data["step_count"],
-                threshold=data["threshold"],
-                attestations=[AgentAttestation(**a) for a in data["attestations"]],
-                timestamp=data.get("timestamp", 0.0),
-            )
-        elif "disclosed_step" in data:
-            receipt = ProofBundle(
-                version=data["version"],
-                agent_id=data["agent_id"],
-                agent_pubkey=data["agent_pubkey"],
-                model_id=data["model_id"],
-                merkle_root=data["merkle_root"],
-                signature=data["signature"],
-                disclosed_step=data["disclosed_step"],
-                merkle_proof=MerkleProof(**data["merkle_proof"]),
-            )
-        else:
-            receipt = WitnessReceipt(**data)
-
-        render_html_report(receipt, output_file=args.html)
+        html = render_html_report(data, output_file=args.html)
         print(f"Interactive HTML dossier generated: {args.html}")
 
     elif args.command == "verify":
         with open(args.receipt_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         receipt = WitnessReceipt(**data)
-        from .merkle import MerkleTree
-
-        steps = [
-            DeliberationStep(
-                step_type=StepType(s["type"]),
-                index=s["index"],
-                content=s["content"],
-                metadata=s.get("metadata", {}),
-                timestamp=s.get("timestamp", 0.0),
-            )
-            for s in receipt.steps
-        ]
-        tree = MerkleTree(steps)
-        if tree.root_hex == receipt.merkle_root:
-            print(f"VERIFIED: Merkle root {receipt.merkle_root} matches all {len(steps)} deliberation steps.")
+        report = verify_trajectory_integrity(receipt)
+        if report.is_valid:
+            print("==================================================================")
+            print(" VERIFICATION SUCCESSFUL")
+            print("==================================================================")
+            print(f"VERIFIED: Merkle root {receipt.merkle_root} matches all {receipt.step_count} deliberation steps.")
+            print("==================================================================")
         else:
-            print(f"TAMPER DETECTED: Computed root {tree.root_hex} != receipt root {receipt.merkle_root}")
+            print("==================================================================")
+            print(" VERIFICATION FAILED: INTEGRITY TAMPER DETECTED")
+            print("==================================================================")
+            print(report.summary)
             sys.exit(1)
+
+    elif args.command == "audit":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        receipt = WitnessReceipt(**data)
+
+        log_inst = TransparencyLog(log_dir=args.log_dir) if args.log_dir else None
+        con_receipt = None
+        if args.consensus:
+            with open(args.consensus, "r", encoding="utf-8") as f:
+                con_receipt = json.load(f)
+
+        report = verify_trajectory_integrity(
+            receipt=receipt,
+            transparency_log=log_inst,
+            consensus_receipt=con_receipt,
+            expected_prompt_hash=args.prompt_hash,
+        )
+
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(report.to_text())
+
+        if args.html:
+            html = render_html_report(receipt.to_dict())
+            Path(args.html).write_text(html, encoding="utf-8")
+            print(f"\nInteractive HTML dossier exported to: {args.html}")
+
+        if not report.is_valid:
+            sys.exit(1)
+
+    elif args.command == "mcp":
+        server = WitnessMCPServer(
+            agent_id=args.agent_id,
+            model_id=args.model_id,
+            log_dir=args.log_dir,
+        )
+        server.run_stdio()
 
     elif args.command == "export-proof":
         with open(args.receipt_file, "r", encoding="utf-8") as f:
@@ -153,8 +180,8 @@ def main() -> None:
         bundle_json = json.dumps(bundle.to_dict(), indent=2)
 
         if args.output:
-            with open(args.output, "w", encoding="utf-8") as out_f:
-                out_f.write(bundle_json)
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(bundle_json)
             print(f"Selective disclosure proof exported to {args.output} (Step #{args.step})")
         else:
             print(bundle_json)
@@ -182,7 +209,6 @@ def main() -> None:
         if args.con_command == "verify":
             with open(args.consensus_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            from .models import AgentAttestation
             rec = ConsensusReceipt(
                 version=data["version"],
                 trajectory_id=data["trajectory_id"],

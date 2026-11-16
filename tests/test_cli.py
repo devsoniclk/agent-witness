@@ -226,3 +226,68 @@ def test_cli_consensus_verify():
         assert "Consensus Reached:  YES - VALID" in res.stdout
     finally:
         Path(cf_path).unlink(missing_ok=True)
+
+
+def test_cli_audit_command():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("audit-agent", "gpt-4o", "Audit Agent System Prompt")
+    engine.record_step(StepType.OBSERVATION, "Initial sensor reading")
+    engine.record_step(StepType.DECISION, "Execute trade safely")
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness", delete=False) as tf:
+        json.dump(receipt.to_dict(), tf)
+        receipt_path = tf.name
+
+    try:
+        # Text output
+        res = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "audit", receipt_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res.returncode == 0
+        assert "AGENT WITNESS FORENSIC TRAJECTORY AUDIT" in res.stdout
+        assert "PASS - CRYPTOGRAPHICALLY VALID" in res.stdout
+
+        # JSON output
+        res_json = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "audit", receipt_path, "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_json.returncode == 0
+        parsed = json.loads(res_json.stdout)
+        assert parsed["is_valid"] is True
+        assert parsed["step_count"] == 2
+    finally:
+        Path(receipt_path).unlink(missing_ok=True)
+
+
+def test_cli_mcp_command_stdio():
+    repo_root = Path(__file__).parent.parent
+
+    # Send initialize request via stdin
+    init_req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n"
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "agent_witness.cli", "mcp"],
+        cwd=str(repo_root),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PYTHONPATH": str(repo_root)},
+    )
+    stdout, stderr = proc.communicate(input=init_req, timeout=5)
+
+    assert proc.returncode == 0
+    res = json.loads(stdout.strip())
+    assert res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
+    assert res["result"]["serverInfo"]["version"] == "0.4.0"
+

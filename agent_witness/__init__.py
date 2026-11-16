@@ -7,6 +7,7 @@ from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .eip712 import EIP712Domain, compute_eip712_digest, hash_witness_receipt, keccak256
 from .html_report import render_html_report
 from .log import TransparencyLog
+from .mcp_server import WitnessMCPServer
 from .merkle import MerkleTree, compute_leaf_hash, compute_parent_hash, verify_merkle_proof
 from .middleware import async_witness_scope, witness_action, witness_scope
 from .models import (
@@ -25,8 +26,9 @@ from .models import (
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .signer import AgentSigner
+from .verifier import AuditCheck, TrajectoryAuditReport, verify_trajectory_integrity
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -59,4 +61,9 @@ __all__ = [
     "ConsensusReceipt",
     "verify_consensus_receipt",
     "render_html_report",
+    # v0.4.0 extensions:
+    "WitnessMCPServer",
+    "verify_trajectory_integrity",
+    "TrajectoryAuditReport",
+    "AuditCheck",
 ]

@@ -23,6 +23,8 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 - **Selective Disclosure Proof Bundles**: Prove that a critical safety check or specific trade tool call occurred without revealing confidential prompts or private reasoning tokens.
 - **Tamper-Evident Chronological Transparency Logs**: Append-only cryptographic ledger maintaining Signed Tree Heads (STH), producing verifiable audit inclusion proofs and historical consistency proofs.
 - **Multi-Agent Threshold Consensus**: Cryptographic quorum attestation where multiple collaborative agents (e.g. planner, auditor, risk gate) sign off on shared action trajectories.
+- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 10 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **Forensic Multi-Layer Trajectory Auditor**: End-to-end verification engine checking step sequence continuity, timestamp monotonicity, canonical leaf hashes, Merkle root validity, signatures, log inclusion, and consensus quorums.
 - **Interactive Dark-Mode HTML Audit Dossier**: Offline, dependency-free visual reports featuring responsive SVG Merkle tree diagrams, expandable step timelines, and verification badges.
 - **Universal Tool Middleware**: Intercept and attest synchronous and asynchronous agent functions with `@witness_action`.
 - **EIP-712 Structured Data Standards**: Zero-dependency pure Python Keccak-256 and EIP-712 typed struct hashing for instant EVM smart contract verification (`ecrecover`).
@@ -220,34 +222,72 @@ require!(is_valid, WitnessError::InvalidProof);
 ## 8. CLI Usage
 
 ```bash
-# 1. Inspect a .witness cryptographic receipt (optionally render HTML dossier)
+# 1. Run full forensic multi-layer audit (checks continuity, timestamps, leaf hashes, root, sigs)
+agent-witness audit trade_receipt.witness --html dossier.html
+
+# 2. Inspect a .witness cryptographic receipt (optionally render HTML dossier)
 agent-witness inspect trade_receipt.witness --html dossier.html
 
-# 2. Verify Merkle root integrity
+# 3. Verify Merkle root integrity
 agent-witness verify trade_receipt.witness
 
-# 3. Export selective disclosure proof for step #2
+# 4. Launch Model Context Protocol (MCP) stdio server for AI agents
+agent-witness mcp --log-dir .witness_log
+
+# 5. Export selective disclosure proof for step #2
 agent-witness export-proof trade_receipt.witness --step 2 --output step2_proof.json
 
-# 4. Verify standalone selective disclosure proof
+# 6. Verify standalone selective disclosure proof
 agent-witness verify-proof step2_proof.json
 
-# 5. Append receipt to transparency log
+# 7. Append receipt to transparency log
 agent-witness log append trade_receipt.witness --log-dir .witness_log
 
-# 6. Check transparency log status & Signed Tree Head
+# 8. Check transparency log status & Signed Tree Head
 agent-witness log status --log-dir .witness_log
 
-# 7. Generate Signed Tree Head checkpoint
+# 9. Generate Signed Tree Head checkpoint
 agent-witness log checkpoint --log-dir .witness_log
 
-# 8. Verify multi-agent consensus receipt
+# 10. Verify multi-agent consensus receipt
 agent-witness consensus verify consensus.json
 ```
 
 ---
 
-## 9. Benchmarks
+## 9. Model Context Protocol (MCP) Configuration
+
+Configure `agent-witness` as an MCP server for **Claude Code**, **Cursor**, **OpenBot**, or **Cline**:
+
+```json
+{
+  "mcpServers": {
+    "agent-witness": {
+      "command": "agent-witness",
+      "args": ["mcp", "--log-dir", ".witness_log"]
+    }
+  }
+}
+```
+
+### Provided MCP Tools
+
+| Tool | Description |
+| :--- | :--- |
+| `witness_record_action` | Cryptographically record deliberation or tool action step (`observation`, `thought`, `tool_call`, `tool_result`, `decision`). |
+| `witness_finalize_receipt` | Finalize session into an RFC 6962 Merkle tree with signed root and return an immutable `WitnessReceipt`. |
+| `witness_audit_trajectory` | Run multi-layer forensic audit (step continuity, timestamps, leaf hashes, Merkle root, signatures, consensus). |
+| `witness_export_proof` | Generate an RFC 6962 selective disclosure proof bundle for a specific step index. |
+| `witness_verify_proof` | Verify a selective disclosure proof bundle against its Merkle root without disclosing other steps. |
+| `witness_log_append` | Append a receipt to the persistent append-only Chronological Transparency Log. |
+| `witness_log_checkpoint` | Create a signed Signed Tree Head (STH) checkpoint of the transparency log. |
+| `witness_log_verify_consistency` | Verify append-only consistency between two log tree sizes. |
+| `witness_attest_consensus` | Cast an agent attestation vote towards M-of-N threshold consensus. |
+| `witness_generate_dossier` | Generate a standalone dark-mode HTML audit dossier with embedded SVG Merkle tree. |
+
+---
+
+## 10. Benchmarks
 
 Measured on Apple Silicon (M5 Air):
 
@@ -256,6 +296,7 @@ Measured on Apple Silicon (M5 Air):
 | **Merkle Tree Build (10 steps)** | `0.11 ms` | `< 0.5 MB` |
 | **Merkle Inclusion Proof Generation** | `0.04 ms` | `< 0.2 MB` |
 | **Standalone Proof Verification** | `0.02 ms` | `< 0.1 MB` |
+| **Forensic Trajectory Audit (7 checks)** | `0.15 ms` | `< 0.4 MB` |
 | **Transparency Log Append & Hash** | `0.06 ms` | `< 0.3 MB` |
 | **Multi-Agent Threshold Verification (3 signers)** | `0.18 ms` | `< 0.4 MB` |
 | **HTML Dossier Generation** | `0.85 ms` | `< 1.0 MB` |
@@ -264,7 +305,7 @@ Measured on Apple Silicon (M5 Air):
 
 ---
 
-## 10. Security Considerations
+## 11. Security Considerations
 - Uses RFC 6962 domain separation prefixes (`0x00` leaves, `0x01` internal nodes) to prevent second-preimage attacks.
 - Deliberation steps use canonical deterministic byte encodings (`index:type:content:metadata:timestamp`).
 - Transparency log enforces tamper-evident append-only sequence checks and Signed Tree Heads.
@@ -272,7 +313,7 @@ Measured on Apple Silicon (M5 Air):
 
 ---
 
-## 11. Roadmap
+## 12. Roadmap
 - [x] RFC 6962 incremental Merkle Tree.
 - [x] Cryptographic Witness Receipt builder & verifier.
 - [x] Solidity `AgentWitnessVerifier.sol` contract with EIP-712 support.
@@ -283,14 +324,16 @@ Measured on Apple Silicon (M5 Air):
 - [x] Tamper-evident chronological Transparency Logs (`TransparencyLog`).
 - [x] Multi-agent threshold consensus engine (`MultiAgentConsensusEngine`).
 - [x] Interactive dark-mode HTML audit dossier visualizer.
+- [x] Standard Model Context Protocol (MCP) stdio server (`agent-witness mcp`).
+- [x] Multi-layer forensic trajectory audit engine (`verify_trajectory_integrity`, `agent-witness audit`).
 - [ ] ZK-SNARK circuit for zero-knowledge agent step proofs.
 
 ---
 
-## 12. Contributing
+## 13. Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-## 13. License
+## 14. License
 Distributed under the [Apache-2.0 License](LICENSE). Copyright 2026 Lakshitha Dananjaya (`devsoniclk`).

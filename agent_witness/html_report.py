@@ -81,7 +81,7 @@ def _generate_merkle_svg(steps: List[Dict[str, Any]], merkle_root: str) -> str:
 
 
 def render_html_report(
-    receipt: Union[WitnessReceipt, ProofBundle, ConsensusReceipt],
+    receipt: Union[WitnessReceipt, ProofBundle, ConsensusReceipt, Dict[str, Any]],
     output_file: Optional[Union[str, Path]] = None,
     title: Optional[str] = None,
 ) -> str:
@@ -91,6 +91,33 @@ def render_html_report(
     Zero external CDN dependencies.
     """
     report_title = title or "Agent Witness Cryptographic Audit Dossier"
+
+    if isinstance(receipt, dict):
+        if "attestations" in receipt:
+            from .models import AgentAttestation
+            receipt = ConsensusReceipt(
+                version=receipt.get("version", "1.0.0"),
+                trajectory_id=receipt.get("trajectory_id", ""),
+                merkle_root=receipt.get("merkle_root", ""),
+                step_count=receipt.get("step_count", 0),
+                threshold=receipt.get("threshold", 1),
+                attestations=[AgentAttestation(**a) for a in receipt.get("attestations", [])],
+                timestamp=receipt.get("timestamp", 0.0),
+            )
+        elif "disclosed_step" in receipt:
+            from .models import MerkleProof
+            receipt = ProofBundle(
+                version=receipt.get("version", "1.0.0"),
+                agent_id=receipt.get("agent_id", ""),
+                agent_pubkey=receipt.get("agent_pubkey", ""),
+                model_id=receipt.get("model_id", ""),
+                merkle_root=receipt.get("merkle_root", ""),
+                signature=receipt.get("signature", ""),
+                disclosed_step=receipt.get("disclosed_step", {}),
+                merkle_proof=MerkleProof(**receipt.get("merkle_proof", {})),
+            )
+        else:
+            receipt = WitnessReceipt(**receipt)
 
     is_consensus = isinstance(receipt, ConsensusReceipt)
     is_bundle = isinstance(receipt, ProofBundle)
