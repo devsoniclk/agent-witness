@@ -3,15 +3,30 @@ agent-witness: Cryptographic action attestation & Merkle audit receipts
 for autonomous AI agents.
 """
 
+from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
 from .eip712 import EIP712Domain, compute_eip712_digest, hash_witness_receipt, keccak256
+from .html_report import render_html_report
+from .log import TransparencyLog
 from .merkle import MerkleTree, compute_leaf_hash, compute_parent_hash, verify_merkle_proof
 from .middleware import async_witness_scope, witness_action, witness_scope
-from .models import DeliberationStep, MerkleProof, ProofBundle, StepType, WitnessReceipt
+from .models import (
+    AgentAttestation,
+    ConsensusReceipt,
+    ConsistencyProof,
+    DeliberationStep,
+    LogCheckpoint,
+    LogInclusionProof,
+    LogRecord,
+    MerkleProof,
+    ProofBundle,
+    StepType,
+    WitnessReceipt,
+)
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .signer import AgentSigner
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -33,4 +48,15 @@ __all__ = [
     "compute_eip712_digest",
     "hash_witness_receipt",
     "keccak256",
+    # v0.3.0 extensions:
+    "TransparencyLog",
+    "LogRecord",
+    "LogCheckpoint",
+    "ConsistencyProof",
+    "LogInclusionProof",
+    "MultiAgentConsensusEngine",
+    "AgentAttestation",
+    "ConsensusReceipt",
+    "verify_consensus_receipt",
+    "render_html_report",
 ]

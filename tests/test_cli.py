@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from agent_witness.consensus import MultiAgentConsensusEngine
 from agent_witness.models import StepType
 from agent_witness.receipt import WitnessEngine
+from agent_witness.signer import AgentSigner
 
 
 def test_cli_inspect_and_verify():
@@ -107,3 +112,117 @@ def test_cli_export_proof_and_verify_proof():
     finally:
         Path(receipt_path).unlink(missing_ok=True)
         Path(proof_path).unlink(missing_ok=True)
+
+
+def test_cli_report_html():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("cli-report-agent", "gpt-4o", "HTML Report Agent")
+    engine.record_step(StepType.OBSERVATION, "Market depth adequate")
+    engine.record_step(StepType.DECISION, "Execution authorized")
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness", delete=False) as tf:
+        json.dump(receipt.to_dict(), tf)
+        receipt_path = tf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False) as hf:
+        html_path = hf.name
+
+    try:
+        res = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "report", receipt_path, "--html", html_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res.returncode == 0
+        assert "Interactive HTML dossier generated" in res.stdout
+        assert Path(html_path).exists()
+        assert "<!DOCTYPE html>" in Path(html_path).read_text(encoding="utf-8")
+    finally:
+        Path(receipt_path).unlink(missing_ok=True)
+        Path(html_path).unlink(missing_ok=True)
+
+
+def test_cli_log_commands():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("log-cli-agent", "gpt-4o", "Log CLI Agent")
+    engine.record_step(StepType.OBSERVATION, "Step 1")
+    engine.record_step(StepType.DECISION, "Step 2")
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness", delete=False) as tf:
+        json.dump(receipt.to_dict(), tf)
+        receipt_path = tf.name
+
+    with tempfile.TemporaryDirectory() as td:
+        log_dir = td
+
+        # 1. log append
+        res_app = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "log", "append", receipt_path, "--log-dir", log_dir],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_app.returncode == 0
+        assert "Receipt appended to transparency log" in res_app.stdout
+
+        # 2. log status
+        res_stat = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "log", "status", "--log-dir", log_dir],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_stat.returncode == 0
+        assert "Total Entries:      1" in res_stat.stdout
+
+        # 3. log checkpoint
+        res_cp = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "log", "checkpoint", "--log-dir", log_dir],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_cp.returncode == 0
+        assert "SIGNED LOG CHECKPOINT" in res_cp.stdout
+
+    Path(receipt_path).unlink(missing_ok=True)
+
+
+def test_cli_consensus_verify():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("con-agent", "gpt-4o", "Consensus Agent")
+    engine.record_step(StepType.DECISION, "Action")
+    receipt = engine.finalize_receipt()
+
+    signer = AgentSigner()
+    con_engine = MultiAgentConsensusEngine.from_receipt(receipt, threshold=1)
+    con_engine.add_attestation(signer, "agent-validator", "gpt-4o", "AUDITOR", verdict="APPROVE")
+    con_rec = con_engine.finalize()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as cf:
+        json.dump(con_rec.to_dict(), cf)
+        cf_path = cf.name
+
+    try:
+        res = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "consensus", "verify", cf_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res.returncode == 0
+        assert "MULTI-AGENT CONSENSUS VERIFICATION" in res.stdout
+        assert "Consensus Reached:  YES - VALID" in res.stdout
+    finally:
+        Path(cf_path).unlink(missing_ok=True)
