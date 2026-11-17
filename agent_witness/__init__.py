@@ -16,6 +16,13 @@ from .credentials import (
     did_key_to_pubkey,
     pubkey_to_did_key,
 )
+from .crosschain import (
+    CCIPMessagePayload,
+    CrossChainAttestationDispatcher,
+    CrossChainDispatchRecord,
+    CrossChainProtocol,
+    LayerZeroMessagePayload,
+)
 from .delegation import (
     DelegationCapability,
     DelegationDAGVerifier,
@@ -75,6 +82,11 @@ from .revocation import (
     RevocationReason,
     RevocationRegistry,
 )
+from .rollup import (
+    RollupBatchAggregator,
+    RollupBatchReceipt,
+    RollupInclusionProof,
+)
 from .signer import AgentSigner
 from .streaming import (
     CausalProvenanceRecord,
@@ -89,8 +101,16 @@ from .zk_proof import (
     ZKProofEngine,
     ZKVerificationReport,
 )
+from .zkvm import (
+    DEFAULT_RISC0_IMAGE_ID,
+    DEFAULT_SP1_VKEY,
+    ZKVMDeliberationEngine,
+    ZKVMReceipt,
+    ZKVMSystem,
+    ZKVMVerificationReport,
+)
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -173,7 +193,6 @@ __all__ = [
     "RevocationEntry",
     "RevocationReason",
     "NonRevocationAttestation",
-    # Delegation & Blinded & Dispute extensions:
     "DelegationCapability",
     "DelegationDAGVerifier",
     "DelegationLineageReport",
@@ -187,4 +206,19 @@ __all__ = [
     "DisputeResolutionReport",
     "DisputeType",
     "SlashingPayload",
+    # v0.8.0 extensions:
+    "ZKVMDeliberationEngine",
+    "ZKVMReceipt",
+    "ZKVMVerificationReport",
+    "ZKVMSystem",
+    "DEFAULT_RISC0_IMAGE_ID",
+    "DEFAULT_SP1_VKEY",
+    "CrossChainAttestationDispatcher",
+    "CrossChainDispatchRecord",
+    "CrossChainProtocol",
+    "LayerZeroMessagePayload",
+    "CCIPMessagePayload",
+    "RollupBatchAggregator",
+    "RollupBatchReceipt",
+    "RollupInclusionProof",
 ]

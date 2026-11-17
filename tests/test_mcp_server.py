@@ -38,7 +38,14 @@ def test_mcp_server_tool_definitions(tmp_path):
     assert "witness_verify_delegation_dag" in tool_names
     assert "witness_blind_receipt" in tool_names
     assert "witness_arbitrate_dispute" in tool_names
-    assert len(tools) == 25
+    # v0.8.0 tools
+    assert "witness_generate_zkvm_receipt" in tool_names
+    assert "witness_verify_zkvm_receipt" in tool_names
+    assert "witness_dispatch_crosschain_attestation" in tool_names
+    assert "witness_estimate_crosschain_fees" in tool_names
+    assert "witness_aggregate_rollup_batch" in tool_names
+    assert "witness_verify_rollup_batch" in tool_names
+    assert len(tools) == 31
 
 
 def test_mcp_server_lifecycle_record_and_finalize(tmp_path):
@@ -207,7 +214,7 @@ def test_mcp_server_json_rpc_dispatch(tmp_path):
     init_req = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
     init_res = server.handle_request(init_req)
     assert init_res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert init_res["result"]["serverInfo"]["version"] == "0.7.0"
+    assert init_res["result"]["serverInfo"]["version"] == "0.8.0"
 
     # notifications/initialized
     notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
@@ -216,7 +223,7 @@ def test_mcp_server_json_rpc_dispatch(tmp_path):
     # tools/list
     list_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     list_res = server.handle_request(list_req)
-    assert len(list_res["result"]["tools"]) == 25
+    assert len(list_res["result"]["tools"]) == 31
 
     # tools/call
     call_req = {

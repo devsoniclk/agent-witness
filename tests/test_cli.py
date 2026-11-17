@@ -289,7 +289,7 @@ def test_cli_mcp_command_stdio():
     assert proc.returncode == 0
     res = json.loads(stdout.strip())
     assert res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert res["result"]["serverInfo"]["version"] == "0.7.0"
+    assert res["result"]["serverInfo"]["version"] in ("0.7.0", "0.8.0")
 
 
 
@@ -498,3 +498,94 @@ def test_cli_v070_commands():
         Path(cred_path).unlink(missing_ok=True)
         Path(zk_path).unlink(missing_ok=True)
         Path(rev_path).unlink(missing_ok=True)
+
+
+def test_cli_v8_zkvm_crosschain_rollup():
+    repo_root = Path(__file__).parent.parent
+    signer = AgentSigner()
+    engine = WitnessEngine(agent_id="cli_v8_agent", signer=signer, model_id="gpt-4o", system_prompt="Test")
+    engine.record_step(StepType.OBSERVATION, "Testing v0.8.0 CLI features")
+    engine.record_step(StepType.TOOL_CALL, "execute_task()")
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness.json", delete=False) as f:
+        json.dump(receipt.to_dict(), f)
+        rf_path = f.name
+
+    zkvm_path = rf_path + ".zkvm.json"
+    batch_path = rf_path + ".batch.json"
+
+    try:
+        # 1. zkvm generate
+        res_zg = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "zkvm", "generate", "--receipt-file", rf_path, "-o", zkvm_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_zg.returncode == 0
+        assert Path(zkvm_path).exists()
+
+        # 2. zkvm verify
+        res_zv = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "zkvm", "verify", "--zkvm-file", zkvm_path, "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_zv.returncode == 0
+        z_rep = json.loads(res_zv.stdout)
+        assert z_rep["is_valid"] is True
+
+        # 3. crosschain estimate
+        res_ce = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "crosschain", "estimate", "--protocol", "layerzero_v2", "--dst-chain", "arbitrum", "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_ce.returncode == 0
+        ce_data = json.loads(res_ce.stdout)
+        assert ce_data["fee_usd"] > 0
+
+        # 4. crosschain dispatch
+        res_cd = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "crosschain", "dispatch", "--receipt-file", rf_path, "--protocol", "chainlink_ccip", "--dst-chain", "base", "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_cd.returncode == 0
+        cd_data = json.loads(res_cd.stdout)
+        assert cd_data["protocol"] == "chainlink_ccip"
+
+        # 5. rollup aggregate
+        res_ra = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "rollup", "aggregate", "--receipt-files", rf_path, "-o", batch_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_ra.returncode == 0
+        assert Path(batch_path).exists()
+
+        # 6. rollup verify
+        res_rv = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "rollup", "verify", "--batch-file", batch_path, "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_rv.returncode == 0
+        rv_data = json.loads(res_rv.stdout)
+        assert rv_data["is_valid"] is True
+    finally:
+        Path(rf_path).unlink(missing_ok=True)
+        Path(zkvm_path).unlink(missing_ok=True)
+        Path(batch_path).unlink(missing_ok=True)

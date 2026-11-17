@@ -18,7 +18,7 @@ def test_mcp_server_v7_initialization_and_tool_count():
             "params": {},
         }
         resp = server.handle_request(init_req)
-        assert resp["result"]["serverInfo"]["version"] == "0.7.0"
+        assert resp["result"]["serverInfo"]["version"] == "0.8.0"
 
         tools_req = {
             "jsonrpc": "2.0",
@@ -30,7 +30,7 @@ def test_mcp_server_v7_initialization_and_tool_count():
         tools = tools_resp["result"]["tools"]
         tool_names = {t["name"] for t in tools}
 
-        assert len(tools) == 25
+        assert len(tools) == 31
         assert "witness_issue_credential" in tool_names
         assert "witness_verify_credential" in tool_names
         assert "witness_generate_zk_attestation" in tool_names

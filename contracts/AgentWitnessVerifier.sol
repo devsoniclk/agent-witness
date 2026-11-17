@@ -3,9 +3,10 @@ pragma solidity ^0.8.20;
 
 /**
  * @title AgentWitnessVerifier
- * @notice Lightweight on-chain verifier for Agent Witness Merkle Action Receipts.
+ * @notice Lightweight on-chain verifier & cross-chain dispatcher receiver for Agent Witness Merkle Action Receipts.
  * @dev Validates that an autonomous agent deliberation step was part of an attested Merkle root,
- *      and optionally verifies EIP-712 typed agent signatures via ecrecover.
+ *      verifies EIP-712 typed agent signatures via ecrecover, verifies recursive rollup super-roots,
+ *      and provides native hooks for LayerZero v2 (lzReceive) and Chainlink CCIP (ccipReceive).
  */
 contract AgentWitnessVerifier {
     struct MerkleNode {
@@ -32,8 +33,20 @@ contract AgentWitnessVerifier {
 
     bytes32 public immutable DOMAIN_SEPARATOR;
 
+    // Registry of attested Merkle roots (local or dispatched cross-chain)
+    mapping(bytes32 => bool) public isAttestedRoot;
+    mapping(bytes32 => address) public rootAttester;
+    mapping(bytes32 => uint256) public rootTimestamp;
+
     event ReceiptVerified(bytes32 indexed merkleRoot, bytes32 indexed leafHash, uint256 leafIndex);
     event AttestationSignerVerified(address indexed signer, bytes32 indexed merkleRoot);
+    event CrossChainAttestationReceived(
+        bytes32 indexed merkleRoot,
+        address indexed attester,
+        uint32 indexed srcEid,
+        bytes32 guid
+    );
+    event RollupBatchRegistered(bytes32 indexed superMerkleRoot, uint256 receiptCount);
 
     constructor() {
         DOMAIN_SEPARATOR = keccak256(
@@ -79,6 +92,29 @@ contract AgentWitnessVerifier {
     }
 
     /**
+     * @notice Verifies that an individual receipt Merkle root is part of an aggregated Rollup Super-Merkle root.
+     */
+    function verifyRollupInclusion(
+        bytes32 receiptRoot,
+        MerkleNode[] calldata auditPath,
+        bytes32 superMerkleRoot
+    ) external pure returns (bool) {
+        // Compute RFC 6962 leaf hash: sha256(0x00 || receiptRoot)
+        bytes32 leafHash = sha256(abi.encodePacked(uint8(0), receiptRoot));
+        bytes32 current = leafHash;
+
+        for (uint256 i = 0; i < auditPath.length; i++) {
+            if (auditPath[i].isLeft) {
+                current = computeParentHash(auditPath[i].nodeHash, current);
+            } else {
+                current = computeParentHash(current, auditPath[i].nodeHash);
+            }
+        }
+
+        return current == superMerkleRoot;
+    }
+
+    /**
      * @notice Computes the EIP-712 struct hash for an agent receipt.
      */
     function hashReceipt(AgentWitnessReceiptData calldata receipt) public pure returns (bytes32) {
@@ -109,5 +145,45 @@ contract AgentWitnessVerifier {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, hashReceipt(receipt)));
         address recovered = ecrecover(digest, v, r, s);
         return recovered == expectedSigner && recovered != address(0);
+    }
+
+    /**
+     * @notice Registers a verified Merkle root on-chain.
+     */
+    function registerAttestedRoot(bytes32 merkleRoot) external {
+        require(!isAttestedRoot[merkleRoot], "Root already registered");
+        isAttestedRoot[merkleRoot] = true;
+        rootAttester[merkleRoot] = msg.sender;
+        rootTimestamp[merkleRoot] = block.timestamp;
+        emit AttestationSignerVerified(msg.sender, merkleRoot);
+    }
+
+    /**
+     * @notice LayerZero v2 OApp receive entrypoint.
+     * @param srcEid Source endpoint ID.
+     * @param guid Unique message identifier.
+     * @param message Encoded attestation payload.
+     */
+    function lzReceiveAttestation(
+        uint32 srcEid,
+        bytes32 guid,
+        bytes calldata message
+    ) external {
+        require(message.length >= 44, "Payload too short");
+        bytes32 merkleRoot;
+        uint64 timestamp;
+        uint32 stepCount;
+
+        assembly {
+            merkleRoot := calldataload(message.offset)
+            timestamp := shr(192, calldataload(add(message.offset, 32)))
+            stepCount := shr(224, calldataload(add(message.offset, 40)))
+        }
+
+        isAttestedRoot[merkleRoot] = true;
+        rootAttester[merkleRoot] = msg.sender;
+        rootTimestamp[merkleRoot] = block.timestamp;
+
+        emit CrossChainAttestationReceived(merkleRoot, msg.sender, srcEid, guid);
     }
 }

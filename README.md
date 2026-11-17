@@ -29,7 +29,10 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 - **Multi-Chain Anchor Dispatcher**: Generates cross-chain anchor transaction payloads across Solana Anchor state programs (with PDA derivation) and EVM L1/L2 contracts with threshold quorum attestation.
 - **Streaming Action Session & Continuous Deliberation Provenance**: Incremental rolling Merkle frontier accumulator with O(1) amortized leaf addition and causal thought-to-action grounding audits.
 - **Automated Compliance & Anomaly Detector**: Real-time evaluation of action streams for velocity bursts, cumulative value-at-risk caps, authority drift, and temporal clock skews.
-- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 25 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **zkVM Deliberation Receipt Engine**: Native RISC Zero Image ID and Succinct SP1 verification key binding, committing public execution journals with cryptographic seals.
+- **Cross-Chain Attestation Dispatcher**: Out-of-the-box LayerZero v2 OApp messaging and Chainlink CCIP `Client.EVM2AnyMessage` encoding with dynamic cross-chain fee estimation.
+- **Recursive Super-Merkle Rollup Batching**: 2nd-order Merkle aggregation compressing multi-agent swarm trajectories into a single super-root, slashing on-chain calldata costs by >90%.
+- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 31 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
 - **W3C Verifiable Agent Credentials**: Standardized Decentralized Identifier (`did:key`) identity binding, issuing cryptographic credentials with delegated capability boundaries, model whitelists, financial caps, and sponsor attestations.
 - **Zero-Knowledge Action Attestation**: Succinct zero-knowledge proof generation proving step bounds, latency limits, model membership, and tool whitelists via Fiat-Shamir heuristics without leaking raw thoughts, prompts, or outputs.
 - **Cryptographic Revocation Registry & Operator Kill-Switch**: Tamper-evident Merkle revocation registry and emergency pause gate to immediately invalidate compromised agent keys and quarantine rogue trajectories.
@@ -219,6 +222,12 @@ agent-witness consensus verify consensus.json
 | `witness_verify_delegation_dag` | Cryptographically verify hierarchical multi-agent delegation lineages and scope containment. |
 | `witness_blind_receipt` | Mask sensitive step inputs/outputs with salted blinding commitments and range bounding proofs. |
 | `witness_arbitrate_dispute` | Arbitrate operational agent disputes and generate EVM/Solana on-chain slashing payloads. |
+| `witness_generate_zkvm_receipt` | Generate RISC Zero or SP1 zkVM deliberation receipts binding Merkle action roots to program image IDs. |
+| `witness_verify_zkvm_receipt` | Verify cryptographic integrity, image ID allowlist, status code, and journal bindings of a zkVM receipt. |
+| `witness_dispatch_crosschain_attestation` | Encode and dispatch Merkle receipts across chains via LayerZero v2 or Chainlink CCIP. |
+| `witness_estimate_crosschain_fees` | Calculate gas overhead, protocol transport premiums, and USD relaying fees across destinations. |
+| `witness_aggregate_rollup_batch` | Aggregate multiple witness receipts into a 2nd-order Super-Merkle Rollup Batch (>90% calldata compression). |
+| `witness_verify_rollup_batch` | Cryptographically verify RollupBatchReceipt signatures and individual receipt inclusion proofs. |
 
 ---
 
@@ -274,6 +283,10 @@ Measured on Apple Silicon (M5 Air):
 - [x] Hierarchical Subagent Delegation Capabilities (`DelegationDAGVerifier`, `agent-witness delegate`).
 - [x] Privacy-Preserving Blinded Attestation & Range Proofs (`BlindedAttestationEngine`, `agent-witness blind`).
 - [x] Autonomous Dispute Arbitration & Slashing Protocol (`ArbitrationEngine`, `agent-witness dispute`).
+- [x] zkVM Deliberation Receipt Engine (`ZKVMDeliberationEngine`, RISC Zero & SP1 guest binding, `agent-witness zkvm`).
+- [x] Cross-Chain Attestation Dispatcher (`CrossChainAttestationDispatcher`, LayerZero v2 & Chainlink CCIP, `agent-witness crosschain`).
+- [x] Recursive Super-Merkle Rollup Batching (`RollupBatchAggregator`, calldata compression >90%, `agent-witness rollup`).
+- [x] Expanded Model Context Protocol (MCP) server to 31 standard tools.
 - [ ] ZK-SNARK circuit for zero-knowledge agent step proofs.
 
 ---

@@ -40,6 +40,9 @@ from .signer import AgentSigner
 from .streaming import StreamingActionSession
 from .verifier import verify_trajectory_integrity
 from .zk_proof import ZKAttestationProof, ZKConstraintSet, ZKProofEngine
+from .zkvm import ZKVMDeliberationEngine, ZKVMReceipt
+from .crosschain import CrossChainAttestationDispatcher
+from .rollup import RollupBatchAggregator, RollupBatchReceipt, RollupInclusionProof
 
 
 class WitnessMCPServer:
@@ -572,6 +575,87 @@ class WitnessMCPServer:
                         "delegation_grant": {"type": "object", "description": "Optional DelegationCapability object."},
                     },
                     "required": ["claim_id", "challenger_id", "target_agent_id", "dispute_type"],
+                },
+            },
+            {
+                "name": "witness_generate_zkvm_receipt",
+                "description": "Generate a zero-knowledge virtual machine (RISC Zero or SP1 zkVM) deliberation receipt binding the Merkle action root to an image ID / vkey.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_file": {"type": "string", "description": "Optional path to input .witness receipt JSON."},
+                        "zkvm_system": {"type": "string", "enum": ["risc0", "sp1"], "default": "risc0", "description": "zkVM architecture: risc0 (RISC Zero) or sp1 (Succinct SP1)."},
+                        "program_id": {"type": "string", "description": "Custom guest Image ID (risc0) or program vkey (sp1) hex."},
+                        "policy_digest": {"type": "string", "description": "Optional custom policy digest hash evaluated inside zkVM."},
+                        "authorized_actions": {"type": "array", "items": {"type": "string"}, "description": "Optional list of authorized action identifiers committed to journal."},
+                    },
+                },
+            },
+            {
+                "name": "witness_verify_zkvm_receipt",
+                "description": "Verify cryptographic integrity, image ID allowlist, status code, and journal bindings of a zkVM deliberation receipt.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "zkvm_receipt": {"type": "object", "description": "ZKVMReceipt dictionary."},
+                        "expected_merkle_root": {"type": "string", "description": "Expected Merkle action root to match against journal."},
+                        "allowed_program_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional list of allowed Image IDs / vkeys."},
+                        "expected_policy_digest": {"type": "string", "description": "Optional expected policy digest."},
+                    },
+                    "required": ["zkvm_receipt"],
+                },
+            },
+            {
+                "name": "witness_dispatch_crosschain_attestation",
+                "description": "Encode and dispatch a Merkle action receipt across blockchains using LayerZero v2 OApp or Chainlink CCIP EVM2AnyMessage.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_file": {"type": "string", "description": "Optional path to input .witness receipt JSON."},
+                        "protocol": {"type": "string", "enum": ["layerzero_v2", "chainlink_ccip"], "description": "Cross-chain transport protocol."},
+                        "dst_chain": {"type": "string", "description": "Destination blockchain (e.g., ethereum, arbitrum, base, optimism, polygon, solana)."},
+                        "receiver_address": {"type": "string", "description": "Target verifier contract address on destination chain."},
+                        "src_chain": {"type": "string", "default": "arbitrum", "description": "Originating blockchain."},
+                        "gas_limit": {"type": "integer", "default": 150000, "description": "Execution gas limit on destination contract."},
+                    },
+                    "required": ["protocol", "dst_chain", "receiver_address"],
+                },
+            },
+            {
+                "name": "witness_estimate_crosschain_fees",
+                "description": "Calculate gas overhead, protocol premiums, and USD relaying costs for LayerZero v2 and Chainlink CCIP attestation messages.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "protocol": {"type": "string", "enum": ["layerzero_v2", "chainlink_ccip"], "description": "Cross-chain messaging protocol."},
+                        "dst_chain": {"type": "string", "description": "Destination blockchain name."},
+                        "gas_limit": {"type": "integer", "default": 150000, "description": "Execution gas limit on destination verifier."},
+                    },
+                    "required": ["protocol", "dst_chain"],
+                },
+            },
+            {
+                "name": "witness_aggregate_rollup_batch",
+                "description": "Aggregate multiple witness receipts into a 2nd-order Super-Merkle Rollup Batch, compressing calldata footprint by >90%.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_files": {"type": "array", "items": {"type": "string"}, "description": "List of paths to .witness receipt JSON files."},
+                        "batch_id": {"type": "string", "description": "Optional unique identifier for the rollup batch."},
+                    },
+                    "required": ["receipt_files"],
+                },
+            },
+            {
+                "name": "witness_verify_rollup_batch",
+                "description": "Verify the cryptographic signature of a RollupBatchReceipt or verify an inclusion proof of an individual receipt within the batch.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "batch_receipt": {"type": "object", "description": "RollupBatchReceipt dictionary."},
+                        "inclusion_proof": {"type": "object", "description": "Optional RollupInclusionProof dictionary to verify inclusion."},
+                    },
+                    "required": ["batch_receipt"],
                 },
             },
         ]
@@ -1141,6 +1225,123 @@ class WitnessMCPServer:
                 res = ArbitrationEngine.arbitrate(claim, delegation_grant=grant)
                 return res.to_dict()
 
+            elif tool_name == "witness_generate_zkvm_receipt":
+                receipt = self._resolve_receipt(arguments)
+                if not receipt:
+                    return {"error": "No receipt available. Finalize a session or provide receipt_file."}
+                zk_sys = arguments.get("zkvm_system", "risc0")
+                prog_id = arguments.get("program_id")
+                pol_dig = arguments.get("policy_digest")
+                auth_actions = arguments.get("authorized_actions")
+                zk_rcpt = ZKVMDeliberationEngine.generate_receipt(
+                    receipt=receipt,
+                    zkvm_system=zk_sys,
+                    policy_digest=pol_dig,
+                    authorized_actions=auth_actions,
+                    program_id=prog_id,
+                )
+                return {
+                    "status": "success",
+                    "zkvm_receipt": zk_rcpt.to_dict(),
+                    "receipt_id": zk_rcpt.receipt_id,
+                    "zkvm_system": zk_rcpt.zkvm_system,
+                    "program_id": zk_rcpt.program_id,
+                    "journal_digest": zk_rcpt.journal_digest,
+                    "seal_hex": zk_rcpt.seal_hex,
+                }
+
+            elif tool_name == "witness_verify_zkvm_receipt":
+                raw_rcpt = arguments["zkvm_receipt"]
+                zk_rcpt = ZKVMReceipt(**raw_rcpt) if isinstance(raw_rcpt, dict) else raw_rcpt
+                exp_root = arguments.get("expected_merkle_root")
+                allowed_progs = arguments.get("allowed_program_ids")
+                exp_policy = arguments.get("expected_policy_digest")
+                report = ZKVMDeliberationEngine.verify_receipt(
+                    zkvm_receipt=zk_rcpt,
+                    expected_merkle_root=exp_root,
+                    allowed_program_ids=allowed_progs,
+                    expected_policy_digest=exp_policy,
+                )
+                return report.to_dict()
+
+            elif tool_name == "witness_dispatch_crosschain_attestation":
+                receipt = self._resolve_receipt(arguments)
+                if not receipt:
+                    return {"error": "No receipt available. Finalize a session or provide receipt_file."}
+                proto = arguments["protocol"]
+                dst_ch = arguments["dst_chain"]
+                recv = arguments["receiver_address"]
+                src_ch = arguments.get("src_chain", "arbitrum")
+                gas_lim = int(arguments.get("gas_limit", 150000))
+                disp = CrossChainAttestationDispatcher.dispatch(
+                    receipt=receipt,
+                    protocol=proto,
+                    dst_chain=dst_ch,
+                    receiver_address=recv,
+                    src_chain=src_ch,
+                    gas_limit=gas_lim,
+                )
+                return {
+                    "status": "dispatched",
+                    "dispatch_record": disp.to_dict(),
+                    "dispatch_id": disp.dispatch_id,
+                    "protocol": disp.protocol,
+                    "message_guid_or_id": disp.message_guid_or_id,
+                    "estimated_fee_usd": disp.estimated_fee_usd,
+                }
+
+            elif tool_name == "witness_estimate_crosschain_fees":
+                proto = arguments["protocol"]
+                dst_ch = arguments["dst_chain"]
+                gas_lim = int(arguments.get("gas_limit", 150000))
+                est = CrossChainAttestationDispatcher.estimate_fees(
+                    protocol=proto,
+                    dst_chain=dst_ch,
+                    gas_limit=gas_lim,
+                )
+                return est
+
+            elif tool_name == "witness_aggregate_rollup_batch":
+                files = arguments["receipt_files"]
+                receipts: List[WitnessReceipt] = []
+                for fpath in files:
+                    p = Path(fpath)
+                    if not p.exists():
+                        return {"error": f"Receipt file not found: {fpath}"}
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                    receipts.append(WitnessReceipt(**data))
+                b_id = arguments.get("batch_id")
+                batch_rcpt, _ = RollupBatchAggregator.aggregate(
+                    receipts=receipts,
+                    batch_signer=self.signer,
+                    batch_id=b_id,
+                )
+                return {
+                    "status": "success",
+                    "batch_receipt": batch_rcpt.to_dict(),
+                    "batch_id": batch_rcpt.batch_id,
+                    "super_merkle_root": batch_rcpt.super_merkle_root,
+                    "receipt_count": batch_rcpt.receipt_count,
+                    "compression_ratio": batch_rcpt.calldata_compression_ratio,
+                }
+
+            elif tool_name == "witness_verify_rollup_batch":
+                raw_batch = arguments["batch_receipt"]
+                batch = RollupBatchReceipt(**raw_batch) if isinstance(raw_batch, dict) else raw_batch
+                batch_sig_ok = RollupBatchAggregator.verify_batch_receipt(batch)
+                incl_proof_ok = True
+                if "inclusion_proof" in arguments and arguments["inclusion_proof"]:
+                    raw_proof = arguments["inclusion_proof"]
+                    proof = RollupInclusionProof(**raw_proof) if isinstance(raw_proof, dict) else raw_proof
+                    incl_proof_ok = RollupBatchAggregator.verify_inclusion_proof(proof)
+                return {
+                    "is_valid": batch_sig_ok and incl_proof_ok,
+                    "batch_signature_valid": batch_sig_ok,
+                    "inclusion_proof_valid": incl_proof_ok,
+                    "super_merkle_root": batch.super_merkle_root,
+                    "receipt_count": batch.receipt_count,
+                }
+
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
 
@@ -1161,7 +1362,7 @@ class WitnessMCPServer:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "agent-witness-mcp",
-                        "version": "0.7.0",
+                        "version": "0.8.0",
                     },
                 },
             }

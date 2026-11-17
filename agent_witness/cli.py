@@ -35,6 +35,9 @@ from .signer import AgentSigner
 from .streaming import StreamingActionSession
 from .verifier import verify_trajectory_integrity
 from .zk_proof import ZKAttestationProof, ZKConstraintSet, ZKProofEngine
+from .zkvm import ZKVMDeliberationEngine, ZKVMReceipt
+from .crosschain import CrossChainAttestationDispatcher
+from .rollup import RollupBatchAggregator, RollupBatchReceipt, RollupInclusionProof
 
 
 def main() -> None:
@@ -235,6 +238,36 @@ def main() -> None:
     p_disp.add_argument("--type", required=True, choices=["unauthorized_tool", "expired_delegation", "budget_exceeded", "ungrounded_action", "tampered_receipt", "policy_violation"], help="Dispute violation type.")
     p_disp.add_argument("--grant-file", help="Optional delegation grant JSON file.")
     p_disp.add_argument("--json", action="store_true", help="Output dispute resolution as JSON.")
+
+    # zkvm
+    p_zkvm = subparsers.add_parser("zkvm", help="zkVM (RISC Zero / SP1) deliberation receipt commands.")
+    p_zkvm.add_argument("action", choices=["generate", "verify"], help="zkVM action.")
+    p_zkvm.add_argument("--receipt-file", help="Path to input .witness receipt JSON.")
+    p_zkvm.add_argument("--zkvm-file", help="Path to input/output zkVM receipt JSON.")
+    p_zkvm.add_argument("--system", choices=["risc0", "sp1"], default="risc0", help="zkVM system.")
+    p_zkvm.add_argument("--program-id", help="Custom guest image ID or SP1 vkey hex.")
+    p_zkvm.add_argument("--expected-root", help="Expected Merkle root for verification.")
+    p_zkvm.add_argument("-o", "--output", help="Output file path for generated zkVM receipt.")
+    p_zkvm.add_argument("--json", action="store_true", help="Output as JSON.")
+
+    # crosschain
+    p_cc = subparsers.add_parser("crosschain", help="LayerZero v2 and Chainlink CCIP attestation commands.")
+    p_cc.add_argument("action", choices=["dispatch", "estimate"], help="Cross-chain action.")
+    p_cc.add_argument("--receipt-file", help="Path to .witness receipt JSON.")
+    p_cc.add_argument("--protocol", choices=["layerzero_v2", "chainlink_ccip"], default="layerzero_v2", help="Cross-chain transport.")
+    p_cc.add_argument("--dst-chain", default="ethereum", help="Destination blockchain.")
+    p_cc.add_argument("--receiver", default="0x1111111111111111111111111111111111111111", help="Target verifier contract address.")
+    p_cc.add_argument("--gas-limit", type=int, default=150000, help="Destination execution gas limit.")
+    p_cc.add_argument("--json", action="store_true", help="Output as JSON.")
+
+    # rollup
+    p_roll = subparsers.add_parser("rollup", help="2nd-order Super-Merkle recursive rollup batch commands.")
+    p_roll.add_argument("action", choices=["aggregate", "verify"], help="Rollup action.")
+    p_roll.add_argument("--receipt-files", nargs="+", help="List of .witness receipt files to aggregate.")
+    p_roll.add_argument("--batch-file", help="Path to RollupBatchReceipt JSON file.")
+    p_roll.add_argument("--proof-file", help="Path to RollupInclusionProof JSON file.")
+    p_roll.add_argument("-o", "--output", help="Output path for aggregated batch JSON.")
+    p_roll.add_argument("--json", action="store_true", help="Output as JSON.")
 
     args = parser.parse_args()
 
@@ -875,6 +908,176 @@ def main() -> None:
             print("==================================================================")
         if res.is_fault_confirmed:
             sys.exit(2)
+
+    elif args.command == "zkvm":
+        if args.action == "generate":
+            if not args.receipt_file:
+                print("Error: --receipt-file is required for zkvm generate.")
+                sys.exit(1)
+            with open(args.receipt_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            receipt = WitnessReceipt(**data)
+            zk_rcpt = ZKVMDeliberationEngine.generate_receipt(
+                receipt=receipt,
+                zkvm_system=args.system,
+                program_id=args.program_id,
+            )
+            out_dict = zk_rcpt.to_dict()
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(out_dict, f, indent=2)
+                print(f"zkVM receipt saved to {args.output}")
+            elif args.json:
+                print(json.dumps(out_dict, indent=2))
+            else:
+                print("==================================================================")
+                print(" ZKVM DELIBERATION RECEIPT GENERATED")
+                print("==================================================================")
+                print(f"Receipt ID:         {zk_rcpt.receipt_id}")
+                print(f"zkVM System:        {zk_rcpt.zkvm_system}")
+                print(f"Program ID:         {zk_rcpt.program_id}")
+                print(f"Journal Digest:     {zk_rcpt.journal_digest}")
+                print(f"Seal Bytes:         {zk_rcpt.seal_hex[:32]}...")
+                print(f"Post-State Digest:  {zk_rcpt.post_state_digest}")
+                print("==================================================================")
+
+        elif args.action == "verify":
+            target_file = args.zkvm_file or args.receipt_file
+            if not target_file:
+                print("Error: --zkvm-file is required for zkvm verify.")
+                sys.exit(1)
+            with open(target_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            zk_rcpt = ZKVMReceipt(**data)
+            rep = ZKVMDeliberationEngine.verify_receipt(
+                zkvm_receipt=zk_rcpt,
+                expected_merkle_root=args.expected_root,
+            )
+            if args.json:
+                print(json.dumps(rep.to_dict(), indent=2))
+            else:
+                print("==================================================================")
+                print(" ZKVM DELIBERATION VERIFICATION REPORT")
+                print("==================================================================")
+                print(f"Valid:              {rep.is_valid}")
+                print(f"System:             {rep.zkvm_system}")
+                print(f"Program ID:         {rep.program_id}")
+                print(f"Merkle Root:        {rep.receipt_merkle_root}")
+                print(f"Status Code:        {rep.status_code}")
+                print(f"Policy Satisfied:   {rep.policy_satisfied}")
+                print(f"Checks:             {len(rep.checks)} passed")
+                print(f"Verification Time:  {rep.verification_duration_ms:.2f} ms")
+                print("==================================================================")
+            if not rep.is_valid:
+                sys.exit(1)
+
+    elif args.command == "crosschain":
+        if args.action == "estimate":
+            est = CrossChainAttestationDispatcher.estimate_fees(
+                protocol=args.protocol,
+                dst_chain=args.dst_chain,
+                gas_limit=args.gas_limit,
+            )
+            if args.json:
+                print(json.dumps(est, indent=2))
+            else:
+                print("==================================================================")
+                print(" CROSS-CHAIN ATTESTATION FEE ESTIMATE")
+                print("==================================================================")
+                print(f"Protocol:           {est['protocol']}")
+                print(f"Destination Chain:  {est['dst_chain']}")
+                print(f"Execution Gas:      {est['gas_limit']} gas")
+                print(f"Total Fee (ETH):    {est['total_fee_eth']:.6f} ETH")
+                print(f"Estimated Cost:     ${est['fee_usd']:.4f} USD")
+                print("==================================================================")
+
+        elif args.action == "dispatch":
+            if not args.receipt_file:
+                print("Error: --receipt-file is required for crosschain dispatch.")
+                sys.exit(1)
+            with open(args.receipt_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            receipt = WitnessReceipt(**data)
+            disp = CrossChainAttestationDispatcher.dispatch(
+                receipt=receipt,
+                protocol=args.protocol,
+                dst_chain=args.dst_chain,
+                receiver_address=args.receiver,
+                gas_limit=args.gas_limit,
+            )
+            if args.json:
+                print(json.dumps(disp.to_dict(), indent=2))
+            else:
+                print("==================================================================")
+                print(" CROSS-CHAIN ATTESTATION DISPATCHED")
+                print("==================================================================")
+                print(f"Dispatch ID:        {disp.dispatch_id}")
+                print(f"Protocol:           {disp.protocol}")
+                print(f"Route:              {disp.src_chain} -> {disp.dst_chain}")
+                print(f"Merkle Root:        {disp.receipt_merkle_root}")
+                print(f"Message GUID/ID:    {disp.message_guid_or_id}")
+                print(f"Target Verifier:    {disp.target_verifier_contract}")
+                print(f"Estimated Fee USD:  ${disp.estimated_fee_usd:.4f}")
+                print("==================================================================")
+
+    elif args.command == "rollup":
+        if args.action == "aggregate":
+            if not args.receipt_files:
+                print("Error: --receipt-files is required for rollup aggregate.")
+                sys.exit(1)
+            receipts: List[WitnessReceipt] = []
+            for rf in args.receipt_files:
+                with open(rf, "r", encoding="utf-8") as f:
+                    receipts.append(WitnessReceipt(**json.load(f)))
+            batch_rcpt, super_tree = RollupBatchAggregator.aggregate(receipts)
+            out_dict = batch_rcpt.to_dict()
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(out_dict, f, indent=2)
+                print(f"Rollup batch saved to {args.output}")
+            elif args.json:
+                print(json.dumps(out_dict, indent=2))
+            else:
+                print("==================================================================")
+                print(" RECURSIVE SUPER-MERKLE ROLLUP BATCH AGGREGATED")
+                print("==================================================================")
+                print(f"Batch ID:           {batch_rcpt.batch_id}")
+                print(f"Super Merkle Root:  {batch_rcpt.super_merkle_root}")
+                print(f"Aggregated Receipts:{batch_rcpt.receipt_count}")
+                print(f"Total Steps:        {batch_rcpt.total_steps}")
+                print(f"Compression Ratio:  {batch_rcpt.calldata_compression_ratio}x")
+                print(f"Batch Signature:    {batch_rcpt.batch_signature[:32]}...")
+                print("==================================================================")
+
+        elif args.action == "verify":
+            if not args.batch_file:
+                print("Error: --batch-file is required for rollup verify.")
+                sys.exit(1)
+            with open(args.batch_file, "r", encoding="utf-8") as f:
+                batch_data = json.load(f)
+            batch = RollupBatchReceipt(**batch_data)
+            batch_ok = RollupBatchAggregator.verify_batch_receipt(batch)
+            proof_ok = True
+            if args.proof_file:
+                with open(args.proof_file, "r", encoding="utf-8") as f:
+                    pdata = json.load(f)
+                proof = RollupInclusionProof(**pdata)
+                proof_ok = RollupBatchAggregator.verify_inclusion_proof(proof)
+            all_valid = batch_ok and proof_ok
+            if args.json:
+                print(json.dumps({"is_valid": all_valid, "batch_signature_valid": batch_ok, "inclusion_proof_valid": proof_ok}, indent=2))
+            else:
+                print("==================================================================")
+                print(" ROLLUP BATCH VERIFICATION REPORT")
+                print("==================================================================")
+                print(f"Overall Valid:      {all_valid}")
+                print(f"Batch Signature:    {batch_ok}")
+                print(f"Inclusion Proof:    {proof_ok}")
+                print(f"Super Merkle Root:  {batch.super_merkle_root}")
+                print(f"Receipt Count:      {batch.receipt_count}")
+                print("==================================================================")
+            if not all_valid:
+                sys.exit(1)
 
 
 if __name__ == "__main__":

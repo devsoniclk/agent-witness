@@ -1,13 +1,20 @@
 import hashlib
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from .models import DeliberationStep, MerkleProof
 
 
-def compute_leaf_hash(step: DeliberationStep) -> bytes:
+def compute_leaf_hash(step: Any) -> bytes:
     """RFC 6962 style leaf hashing with 0x00 domain separator prefix."""
     h = hashlib.sha256()
     h.update(b"\x00")
-    h.update(step.to_canonical_bytes())
+    if hasattr(step, "to_canonical_bytes"):
+        h.update(step.to_canonical_bytes())
+    elif isinstance(step, bytes):
+        h.update(step)
+    elif isinstance(step, str):
+        h.update(step.encode("utf-8"))
+    else:
+        h.update(str(step).encode("utf-8"))
     return h.digest()
 
 
@@ -85,15 +92,40 @@ class MerkleTree:
         )
 
 
-def verify_merkle_proof(leaf_hash_hex: str, proof: MerkleProof, root_hex: str) -> bool:
-    """Verifies that leaf_hash_hex is member of tree rooted at root_hex."""
-    curr = bytes.fromhex(leaf_hash_hex)
+def verify_merkle_proof(
+    leaf_hash: Optional[str] = None,
+    proof: Optional[Any] = None,
+    root_hash: Optional[str] = None,
+    audit_path: Optional[List[Dict[str, str]]] = None,
+    root_hex: Optional[str] = None,
+    leaf_hash_hex: Optional[str] = None,
+) -> bool:
+    """Verifies that leaf_hash is member of tree rooted at root_hash."""
+    target_leaf = leaf_hash or leaf_hash_hex
+    target_root = root_hash or root_hex
+    if not target_leaf or not target_root:
+        return False
 
-    for item in proof.audit_path:
-        sibling = bytes.fromhex(item["hash"])
+    curr = bytes.fromhex(target_leaf.removeprefix("0x"))
+
+    path = []
+    if audit_path is not None:
+        path = audit_path
+    elif proof is not None and hasattr(proof, "audit_path"):
+        path = proof.audit_path
+    elif isinstance(proof, list):
+        path = proof
+
+    for item in path:
+        sibling = bytes.fromhex(item["hash"].removeprefix("0x"))
         if item["direction"] == "left":
             curr = compute_parent_hash(sibling, curr)
         else:
             curr = compute_parent_hash(curr, sibling)
 
-    return curr.hex() == root_hex
+    if isinstance(target_root, bytes):
+        target_root_hex = target_root.hex()
+    else:
+        target_root_hex = str(target_root).removeprefix("0x")
+
+    return curr.hex() == target_root_hex
