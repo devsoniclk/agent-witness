@@ -48,7 +48,10 @@ def test_mcp_server_tool_definitions(tmp_path):
     # v0.9.0 tools
     assert "witness_bridge_execute_pipeline" in tool_names
     assert "witness_bridge_verify_pipeline" in tool_names
-    assert len(tools) == 33
+    # BFT consensus tools
+    assert "witness_bft_consensus_run" in tool_names
+    assert "witness_detect_equivocation" in tool_names
+    assert len(tools) == 35
 
 
 def test_mcp_server_lifecycle_record_and_finalize(tmp_path):
@@ -226,7 +229,7 @@ def test_mcp_server_json_rpc_dispatch(tmp_path):
     # tools/list
     list_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     list_res = server.handle_request(list_req)
-    assert len(list_res["result"]["tools"]) == 33
+    assert len(list_res["result"]["tools"]) == 35
 
     # tools/call
     call_req = {

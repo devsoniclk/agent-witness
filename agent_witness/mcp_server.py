@@ -698,6 +698,40 @@ class WitnessMCPServer:
                     "required": ["pipeline_receipt"],
                 },
             },
+            {
+                "name": "witness_bft_consensus_run",
+                "description": "Execute or forensically evaluate a Byzantine Fault Tolerant (BFT) multi-agent consensus round over trajectory Merkle roots with 2f+1 quorum math, equivocation slashing, and certificate generation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "merkle_root": {"type": "string", "description": "Hex-encoded Merkle root of the deliberation trajectory."},
+                        "trajectory_id": {"type": "string", "description": "Optional trajectory identifier."},
+                        "validators": {"type": "object", "description": "Dictionary mapping agent_id to integer voting weight."},
+                        "votes": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "Array of validator votes ({agent_id, verdict, round, vote_type, comments}).",
+                        },
+                        "round": {"type": "integer", "description": "Consensus round number (default: 1).", "default": 1},
+                    },
+                    "required": ["merkle_root", "validators"],
+                },
+            },
+            {
+                "name": "witness_detect_equivocation",
+                "description": "Forensically scan validator vote histories to detect Byzantine double-voting / equivocation and generate cryptographic fraud evidence.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "votes": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "Array of BFTVote dictionaries to forensically audit for conflicting signatures.",
+                        },
+                    },
+                    "required": ["votes"],
+                },
+            },
         ]
 
     def _resolve_receipt(self, arguments: Dict[str, Any]) -> Optional[WitnessReceipt]:
@@ -1417,6 +1451,65 @@ class WitnessMCPServer:
                 receipt_dict = arguments.get("pipeline_receipt", {})
                 report = AgentLifecycleBridge.verify_pipeline_receipt(receipt_dict)
                 return report.to_dict()
+
+            elif tool_name == "witness_bft_consensus_run":
+                from .consensus import ByzantineConsensusEngine, BFTVoteType, verify_bft_certificate
+                merkle_root = arguments["merkle_root"]
+                trajectory_id = arguments.get("trajectory_id", f"traj-bft-{merkle_root[:12]}")
+                validators = arguments["validators"]
+                round_num = arguments.get("round", 1)
+                raw_votes = arguments.get("votes", [])
+
+                # Create ephemeral signers for validators if not provided
+                signers = {v: AgentSigner() for v in validators}
+                engine = ByzantineConsensusEngine(
+                    trajectory_id=trajectory_id,
+                    merkle_root=merkle_root,
+                    validators=validators,
+                    signers=signers,
+                )
+
+                if raw_votes:
+                    for v in raw_votes:
+                        aid = v.get("agent_id")
+                        if aid not in signers:
+                            signers[aid] = AgentSigner()
+                        signer = signers[aid]
+                        v_type = v.get("vote_type", "PREVOTE").upper()
+                        verdict = v.get("verdict", "APPROVE")
+                        root = v.get("merkle_root", merkle_root)
+                        comm = v.get("comments", "")
+                        r = v.get("round", round_num)
+
+                        if v_type == "PRECOMMIT":
+                            engine.cast_precommit(signer, aid, verdict=verdict, merkle_root=root, round=r, comments=comm)
+                        else:
+                            engine.cast_prevote(signer, aid, verdict=verdict, merkle_root=root, round=r, comments=comm)
+                else:
+                    # Default simulate unanimous 2-phase BFT
+                    for v in validators:
+                        signer = signers[v]
+                        engine.cast_prevote(signer, v, verdict="APPROVE", round=round_num)
+                        engine.cast_precommit(signer, v, verdict="APPROVE", round=round_num)
+
+                cert = engine.finalize(round=round_num)
+                is_valid, report = verify_bft_certificate(cert, signers=signers)
+                return {
+                    "certificate": cert.to_dict(),
+                    "verification": report,
+                }
+
+            elif tool_name == "witness_detect_equivocation":
+                from .consensus import EquivocationDetector, BFTVote
+                raw_votes = arguments.get("votes", [])
+                votes = [BFTVote.from_dict(v) for v in raw_votes]
+                detector = EquivocationDetector()
+                evidence_list = detector.audit_votes(votes)
+                return {
+                    "total_votes_audited": len(votes),
+                    "evidence_count": len(evidence_list),
+                    "evidence": [e.to_dict() for e in evidence_list],
+                }
 
             else:
                 return {"error": f"Unknown tool: {tool_name}"}

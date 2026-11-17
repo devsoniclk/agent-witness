@@ -30,7 +30,7 @@ def test_mcp_server_v7_initialization_and_tool_count():
         tools = tools_resp["result"]["tools"]
         tool_names = {t["name"] for t in tools}
 
-        assert len(tools) == 33
+        assert len(tools) >= 33
         assert "witness_issue_credential" in tool_names
         assert "witness_verify_credential" in tool_names
         assert "witness_generate_zk_attestation" in tool_names

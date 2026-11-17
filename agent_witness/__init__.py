@@ -6,7 +6,18 @@ for autonomous AI agents.
 from .batch_anchor import BatchAnchorEngine, BatchInclusionProof, EpochBatchReceipt
 from .blinded import BlindedAttestationEngine, BlindedReceipt, RangeProofCommitment, compute_blinded_hash
 from .compliance import AnomalyIncident, ComplianceAnomalyDetector, ComplianceAuditReport
-from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
+from .consensus import (
+    MultiAgentConsensusEngine,
+    verify_consensus_receipt,
+    BFTVoteType,
+    ByzantineFaultType,
+    BFTVote,
+    ByzantineFaultEvidence,
+    BFTConsensusCertificate,
+    ByzantineConsensusEngine,
+    EquivocationDetector,
+    verify_bft_certificate,
+)
 from .credentials import (
     AgentCredentialEngine,
     CredentialProof,
@@ -118,7 +129,7 @@ from .bridge import (
     SimulationMeta,
 )
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -150,6 +161,14 @@ __all__ = [
     "AgentAttestation",
     "ConsensusReceipt",
     "verify_consensus_receipt",
+    "BFTVoteType",
+    "ByzantineFaultType",
+    "BFTVote",
+    "ByzantineFaultEvidence",
+    "BFTConsensusCertificate",
+    "ByzantineConsensusEngine",
+    "EquivocationDetector",
+    "verify_bft_certificate",
     "render_html_report",
     # v0.4.0 extensions:
     "WitnessMCPServer",

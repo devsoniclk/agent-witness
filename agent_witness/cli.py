@@ -131,6 +131,18 @@ def main() -> None:
     p_cv = con_sub.add_parser("verify", help="Verify a multi-agent consensus receipt.")
     p_cv.add_argument("consensus_file", help="Path to consensus receipt JSON file.")
 
+    p_cbft = con_sub.add_parser("bft-round", help="Execute or simulate a 2-phase Byzantine Fault Tolerant consensus round.")
+    p_cbft.add_argument("--receipt", help="Path to .witness receipt file.")
+    p_cbft.add_argument("--root", help="Explicit Merkle root hex string if receipt not provided.")
+    p_cbft.add_argument("--validators", default="agent-1,agent-2,agent-3,agent-4", help="Comma-separated validator agent IDs.")
+    p_cbft.add_argument("--out", help="Optional output path for BFT certificate JSON.")
+
+    p_cbft_v = con_sub.add_parser("bft-verify", help="Forensically verify a BFT consensus certificate.")
+    p_cbft_v.add_argument("cert_file", help="Path to BFT certificate JSON file.")
+
+    p_ceq = con_sub.add_parser("detect-equivocation", help="Audit vote history for Byzantine equivocation fraud.")
+    p_ceq.add_argument("votes_file", help="Path to JSON file containing array of BFT votes.")
+
     # log
     p_log = subparsers.add_parser("log", help="Tamper-evident chronological transparency log commands.")
     log_sub = p_log.add_subparsers(dest="log_command", required=True)
@@ -607,6 +619,98 @@ def main() -> None:
             print("==================================================================")
             if not is_valid:
                 sys.exit(1)
+
+        elif args.con_command == "bft-round":
+            from .consensus import ByzantineConsensusEngine, verify_bft_certificate
+            root = args.root
+            traj_id = "traj-bft-cli"
+            if args.receipt:
+                with open(args.receipt, "r", encoding="utf-8") as f:
+                    r_data = json.load(f)
+                root = r_data.get("merkle_root", "")
+                traj_id = f"traj-{r_data.get('agent_id', 'agent')}-{root[:12]}"
+            if not root:
+                print("Error: Either --receipt or --root must be specified.")
+                sys.exit(1)
+
+            val_list = [v.strip() for v in args.validators.split(",") if v.strip()]
+            validators = {v: 1 for v in val_list}
+            signers = {v: AgentSigner() for v in val_list}
+
+            engine = ByzantineConsensusEngine(
+                trajectory_id=traj_id,
+                merkle_root=root,
+                validators=validators,
+                signers=signers,
+            )
+
+            # Cast prevotes and precommits
+            for v in val_list:
+                engine.cast_prevote(signers[v], v, verdict="APPROVE", round=1)
+                engine.cast_precommit(signers[v], v, verdict="APPROVE", round=1)
+
+            cert = engine.finalize(round=1)
+            is_valid, report = verify_bft_certificate(cert, signers=signers)
+
+            print("==================================================================")
+            print(" BYZANTINE FAULT TOLERANT (BFT) CONSENSUS ROUND")
+            print("==================================================================")
+            print(f"Certificate ID:      {cert.certificate_id}")
+            print(f"Trajectory ID:       {cert.trajectory_id}")
+            print(f"Merkle Root:         {cert.merkle_root}")
+            print(f"Total Validators:    {cert.total_validators}")
+            print(f"Byzantine Faults (f):{cert.byzantine_threshold_f}")
+            print(f"Quorum Threshold:    {cert.quorum_threshold} of {cert.total_weight}")
+            print(f"Committed Weight:    {cert.committed_weight}")
+            print(f"Finalized & Valid:   {'YES - CONSENSUS REACHED' if is_valid else 'NO - FAILED'}")
+            print(f"Slashed Nodes:       {len(cert.slashed_agents)}")
+            print("==================================================================")
+
+            if args.out:
+                with open(args.out, "w", encoding="utf-8") as f:
+                    json.dump(cert.to_dict(), f, indent=2)
+                print(f"BFT Certificate written to: {args.out}")
+
+        elif args.con_command == "bft-verify":
+            from .consensus import BFTConsensusCertificate, verify_bft_certificate
+            with open(args.cert_file, "r", encoding="utf-8") as f:
+                c_data = json.load(f)
+            cert = BFTConsensusCertificate.from_dict(c_data)
+            is_valid, report = verify_bft_certificate(cert)
+
+            print("==================================================================")
+            print(" BFT CONSENSUS CERTIFICATE VERIFICATION")
+            print("==================================================================")
+            print(f"Certificate ID:    {report['certificate_id']}")
+            print(f"Merkle Root:       {report['merkle_root']}")
+            print(f"Quorum Satisfied:  {report['quorum_satisfied']}")
+            print(f"Committed Weight:  {report['valid_precommit_weight']} / {report['quorum_threshold']}")
+            print(f"Fault Tolerance:   f={report['byzantine_threshold_f']}")
+            print(f"Slashed Agents:    {report['slashed_agents']}")
+            print(f"Final Status:      {'VERIFIED VALID' if is_valid else 'REJECTED'}")
+            print("==================================================================")
+            if not is_valid:
+                sys.exit(1)
+
+        elif args.con_command == "detect-equivocation":
+            from .consensus import BFTVote, EquivocationDetector
+            with open(args.votes_file, "r", encoding="utf-8") as f:
+                v_data = json.load(f)
+            votes = [BFTVote.from_dict(v) for v in v_data]
+            detector = EquivocationDetector()
+            evidence = detector.audit_votes(votes)
+
+            print("==================================================================")
+            print(" BYZANTINE EQUIVOCATION AUDIT")
+            print("==================================================================")
+            print(f"Total Votes Inspected: {len(votes)}")
+            print(f"Fraud / Equivocations: {len(evidence)}")
+            for ev in evidence:
+                print(f"  [!] {ev.fault_type.value}: Agent '{ev.agent_id}' in round {ev.round}")
+                print(f"      {ev.details}")
+            print("==================================================================")
+            if evidence:
+                sys.exit(2)
 
     elif args.command == "log":
         log = TransparencyLog(log_dir=args.log_dir)

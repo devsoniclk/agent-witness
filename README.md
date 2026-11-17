@@ -5,7 +5,7 @@
 [![CI](https://github.com/devsoniclk/agent-witness/actions/workflows/ci.yml/badge.svg)](https://github.com/devsoniclk/agent-witness/actions)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://pypi.org/project/agent-witness/)
-[![Version](https://img.shields.io/badge/version-v0.9.0-green.svg)](https://github.com/devsoniclk/agent-witness/releases/tag/v0.9.0)
+[![Version](https://img.shields.io/badge/version-v0.10.0-green.svg)](https://github.com/devsoniclk/agent-witness/releases/tag/v0.10.0)
 
 ---
 
@@ -33,7 +33,8 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 - **zkVM Deliberation Receipt Engine**: Native RISC Zero Image ID and Succinct SP1 verification key binding, committing public execution journals with cryptographic seals.
 - **Cross-Chain Attestation Dispatcher**: Out-of-the-box LayerZero v2 OApp messaging and Chainlink CCIP `Client.EVM2AnyMessage` encoding with dynamic cross-chain fee estimation.
 - **Recursive Super-Merkle Rollup Batching**: 2nd-order Merkle aggregation compressing multi-agent swarm trajectories into a single super-root, slashing on-chain calldata costs by >90%.
-- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 33 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **Byzantine Fault Tolerant (BFT) Consensus Engine**: Tendermint/PBFT-style 2-phase BFT commit protocol (`PREVOTE` + `PRECOMMIT`) with cryptographic voting thresholds ($Q = \lfloor 2W/3 \rfloor + 1$), equivocation detection, conflicting pre-commit defense, automatic validator slashing, and multi-signature certificate issuance.
+- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 35 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
 - **Unified Cross-Portfolio Lifecycle Bridge (`AgentLifecycleBridge`)**: Bridges `rollback` transactional sandboxing, `solana-tx-lens` pre-flight simulation, and `agent-witness` zkVM/cross-chain attestations into an atomic, verifiable execution pipeline with automatic rollback upon compute unit or policy violation.
 - **W3C Verifiable Agent Credentials**: Standardized Decentralized Identifier (`did:key`) identity binding, issuing cryptographic credentials with delegated capability boundaries, model whitelists, financial caps, and sponsor attestations.
 - **Zero-Knowledge Action Attestation**: Succinct zero-knowledge proof generation proving step bounds, latency limits, model membership, and tool whitelists via Fiat-Shamir heuristics without leaking raw thoughts, prompts, or outputs.
@@ -207,6 +208,11 @@ agent-witness rollup verify --batch-file rollup_batch.json
 # 13. Unified Cross-Portfolio Lifecycle Bridge (rollback sandboxing + solana-tx-lens simulation + witness attestation)
 agent-witness bridge run --agent-id my-agent --spec-file steps.json --generate-zkvm --crosschain layerzero_v2 --target-chain arbitrum -o pipeline_receipt.json
 agent-witness bridge verify --receipt-file pipeline_receipt.json
+
+# 14. Byzantine Fault Tolerant (BFT) Consensus & Equivocation Auditing
+agent-witness con bft-round --receipt trade_receipt.witness --validators agent-1,agent-2,agent-3,agent-4 --out bft_cert.json
+agent-witness con bft-verify bft_cert.json
+agent-witness con detect-equivocation votes.json
 ```
 
 ---
@@ -246,10 +252,10 @@ agent-witness bridge verify --receipt-file pipeline_receipt.json
 | `witness_estimate_crosschain_fees` | Calculate gas overhead, protocol transport premiums, and USD relaying fees across destinations. |
 | `witness_aggregate_rollup_batch` | Aggregate multiple witness receipts into a 2nd-order Super-Merkle Rollup Batch (>90% calldata compression). |
 | `witness_verify_rollup_batch` | Cryptographically verify RollupBatchReceipt signatures and individual receipt inclusion proofs. |
-| `witness_bridge_execute_pipeline` | Execute end-to-end lifecycle pipeline integrating rollback workspace sandboxing, Solana transaction simulation, and Merkle attestation. |
-| `witness_bridge_verify_pipeline` | Verify end-to-end cryptographic integrity, zkVM journal digest, rollback sandbox consistency, and compute budget compliance. |
 | `witness_bridge_execute_pipeline` | Execute unified cross-portfolio pipeline (`rollback` sandbox + `solana-tx-lens` simulation + `agent-witness` zkVM & cross-chain attestation). |
 | `witness_bridge_verify_pipeline` | Cryptographically verify end-to-end `EndToEndExecutionReceipt` with signature, Merkle root, zkVM journal, and simulation compliance checks. |
+| `witness_bft_consensus_run` | Execute or simulate a 2-phase Byzantine Fault Tolerant (BFT) consensus round across agent validators with equivocation detection and certificate generation. |
+| `witness_detect_equivocation` | Batch audit vote histories for Byzantine equivocation fraud and extract cryptographic slashing evidence. |
 
 ---
 
@@ -309,7 +315,8 @@ Measured on Apple Silicon (M5 Air):
 - [x] Cross-Chain Attestation Dispatcher (`CrossChainAttestationDispatcher`, LayerZero v2 & Chainlink CCIP, `agent-witness crosschain`).
 - [x] Recursive Super-Merkle Rollup Batching (`RollupBatchAggregator`, calldata compression >90%, `agent-witness rollup`).
 - [x] Unified Cross-Portfolio Lifecycle Bridge (`AgentLifecycleBridge`, `rollback` & `solana-tx-lens` integration, `agent-witness bridge`).
-- [x] Expanded Model Context Protocol (MCP) server to 33 standard tools.
+- [x] Expanded Model Context Protocol (MCP) server to 35 standard tools.
+- [x] Multi-Agent Byzantine Fault Tolerant (BFT) Consensus Engine & Equivocation Slashing.
 - [ ] ZK-SNARK circuit for zero-knowledge agent step proofs.
 
 ---
