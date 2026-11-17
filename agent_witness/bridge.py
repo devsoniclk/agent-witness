@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from pathlib import Path
 import secrets
 import tempfile
 import time
@@ -203,6 +204,25 @@ class AgentLifecycleBridge:
             hasher.update(f.encode("utf-8"))
         return hasher.hexdigest()
 
+    def _restore_files(self, cp_obj: Any, local_backups: Dict[str, Optional[bytes]]) -> None:
+        """Restores files using rollback session if available, or local backup fallback."""
+        if self.rollback_session and cp_obj:
+            try:
+                self.rollback_session.revert(cp_obj.id)
+                return
+            except Exception:
+                pass
+
+        for tf, data in local_backups.items():
+            try:
+                p = Path(tf)
+                if data is not None:
+                    p.write_bytes(data)
+                elif p.exists():
+                    p.unlink()
+            except Exception:
+                pass
+
     def execute_step(
         self,
         step_name: str,
@@ -215,7 +235,7 @@ class AgentLifecycleBridge:
     ) -> Tuple[LifecycleStepReceipt, Any]:
         """
         Executes a single protected agent step:
-        1. Establishes micro-checkpoint in rollback session.
+        1. Establishes micro-checkpoint in rollback session (or local backup).
         2. Simulates Solana transaction if tx_simulation_input provided.
         3. Executes action_func.
         4. Reverts files if execution throws or CU budget is exceeded.
@@ -225,10 +245,22 @@ class AgentLifecycleBridge:
         start_time = time.time()
         step_idx = len(self.steps)
 
-        # 1. Establish rollback checkpoint
+        # 1. Establish rollback checkpoint & local file backup
         checkpoint_id = f"cp_{secrets.token_hex(6)}"
         initial_hash = self._compute_state_hash(target_files)
         cp_obj = None
+
+        local_backups: Dict[str, Optional[bytes]] = {}
+        if target_files:
+            for tf in target_files:
+                p = Path(tf)
+                if p.exists() and p.is_file():
+                    try:
+                        local_backups[tf] = p.read_bytes()
+                    except Exception:
+                        pass
+                else:
+                    local_backups[tf] = None
 
         if self.rollback_session and target_files:
             try:
@@ -311,8 +343,7 @@ class AgentLifecycleBridge:
 
         # 3. Check for pre-flight simulation failure
         if sim_meta and (not sim_meta.success or (self.auto_rollback_on_cu_exceeded and sim_meta.total_compute_units > effective_cu_limit)):
-            if self.rollback_session and cp_obj:
-                self.rollback_session.revert(cp_obj.id)
+            self._restore_files(cp_obj, local_backups)
             sandbox_meta.reverted = True
 
             err_reason = sim_meta.error or f"Compute budget exceeded: {sim_meta.total_compute_units} > {effective_cu_limit}"
@@ -348,11 +379,7 @@ class AgentLifecycleBridge:
             except Exception as e:
                 executed_successfully = False
                 err_msg = f"{type(e).__name__}: {str(e)}"
-                if self.rollback_session and cp_obj:
-                    try:
-                        self.rollback_session.revert(cp_obj.id)
-                    except Exception:
-                        pass
+                self._restore_files(cp_obj, local_backups)
                 sandbox_meta.reverted = True
 
         status = "COMMITTED" if executed_successfully else "REVERTED"
@@ -409,6 +436,18 @@ class AgentLifecycleBridge:
         checkpoint_id = f"cp_{secrets.token_hex(6)}"
         cp_obj = None
 
+        local_backups: Dict[str, Optional[bytes]] = {}
+        if target_files:
+            for tf in target_files:
+                p = Path(tf)
+                if p.exists() and p.is_file():
+                    try:
+                        local_backups[tf] = p.read_bytes()
+                    except Exception:
+                        pass
+                else:
+                    local_backups[tf] = None
+
         if self.rollback_session and target_files:
             try:
                 cp_obj = self.rollback_session.checkpoint(label=f"scope:{step_name}", target_files=target_files)
@@ -450,11 +489,7 @@ class AgentLifecycleBridge:
         except Exception as exc:
             status = "REVERTED"
             sandbox_meta.reverted = True
-            if self.rollback_session and cp_obj:
-                try:
-                    self.rollback_session.revert(cp_obj.id)
-                except Exception:
-                    pass
+            self._restore_files(cp_obj, local_backups)
             self.witness_engine.record_step(StepType.DECISION, f"Scope '{step_name}' failed with {type(exc).__name__}: reverting", metadata={"error": str(exc)})
             raise exc
         finally:
