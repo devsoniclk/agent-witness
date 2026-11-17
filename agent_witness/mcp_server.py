@@ -658,6 +658,46 @@ class WitnessMCPServer:
                     "required": ["batch_receipt"],
                 },
             },
+            {
+                "name": "witness_bridge_execute_pipeline",
+                "description": "Execute an end-to-end autonomous agent lifecycle pipeline integrating rollback workspace sandboxing, Solana transaction simulation, and cryptographic Merkle attestation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {"type": "string", "description": "Identifier of the agent executing the pipeline."},
+                        "steps": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "step_name": {"type": "string"},
+                                    "target_files": {"type": "array", "items": {"type": "string"}},
+                                    "tx_simulation": {"type": "object"},
+                                    "cu_limit": {"type": "integer"},
+                                },
+                                "required": ["step_name"],
+                            },
+                            "description": "Ordered list of execution steps to sandbox, simulate, and attest.",
+                        },
+                        "generate_zkvm": {"type": "boolean", "description": "Whether to generate a zkVM deliberation receipt (RISC Zero / SP1)."},
+                        "zkvm_system": {"type": "string", "enum": ["risc0", "sp1"], "default": "risc0"},
+                        "crosschain_protocol": {"type": "string", "enum": ["layerzero_v2", "chainlink_ccip"]},
+                        "target_chain": {"type": "string", "description": "Target destination blockchain for attestation."},
+                    },
+                    "required": ["agent_id", "steps"],
+                },
+            },
+            {
+                "name": "witness_bridge_verify_pipeline",
+                "description": "Verify the end-to-end cryptographic integrity, zkVM journal digest, rollback sandbox consistency, and compute budget compliance of an EndToEndExecutionReceipt.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "pipeline_receipt": {"type": "object", "description": "EndToEndExecutionReceipt dictionary to audit."},
+                    },
+                    "required": ["pipeline_receipt"],
+                },
+            },
         ]
 
     def _resolve_receipt(self, arguments: Dict[str, Any]) -> Optional[WitnessReceipt]:
@@ -1342,6 +1382,42 @@ class WitnessMCPServer:
                     "receipt_count": batch.receipt_count,
                 }
 
+            elif tool_name == "witness_bridge_execute_pipeline":
+                from .bridge import AgentLifecycleBridge
+                agent_id = arguments.get("agent_id", "agent-bridge-mcp")
+                steps_data = arguments.get("steps", [])
+                generate_zkvm = arguments.get("generate_zkvm", False)
+                zkvm_system = arguments.get("zkvm_system", "risc0")
+                crosschain_protocol = arguments.get("crosschain_protocol")
+                target_chain = arguments.get("target_chain")
+
+                bridge = AgentLifecycleBridge(agent_id=agent_id, signer=self.signer)
+                for s in steps_data:
+                    step_name = s.get("step_name", "unnamed_step")
+                    target_files = s.get("target_files")
+                    tx_sim = s.get("tx_simulation")
+                    cu_limit = s.get("cu_limit")
+                    bridge.execute_step(
+                        step_name=step_name,
+                        target_files=target_files,
+                        tx_simulation_input=tx_sim,
+                        cu_limit=cu_limit,
+                    )
+
+                pipeline_receipt = bridge.finalize_pipeline(
+                    generate_zkvm=generate_zkvm,
+                    zkvm_system=zkvm_system,
+                    crosschain_protocol=crosschain_protocol,
+                    target_chain=target_chain,
+                )
+                return pipeline_receipt.to_dict()
+
+            elif tool_name == "witness_bridge_verify_pipeline":
+                from .bridge import AgentLifecycleBridge
+                receipt_dict = arguments.get("pipeline_receipt", {})
+                report = AgentLifecycleBridge.verify_pipeline_receipt(receipt_dict)
+                return report.to_dict()
+
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
 
@@ -1362,7 +1438,7 @@ class WitnessMCPServer:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "agent-witness-mcp",
-                        "version": "0.8.0",
+                        "version": "0.9.0",
                     },
                 },
             }

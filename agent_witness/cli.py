@@ -269,6 +269,18 @@ def main() -> None:
     p_roll.add_argument("-o", "--output", help="Output path for aggregated batch JSON.")
     p_roll.add_argument("--json", action="store_true", help="Output as JSON.")
 
+    p_bridge = subparsers.add_parser("bridge", help="Cross-portfolio lifecycle bridge orchestrating rollback, simulation, and witness.")
+    p_bridge.add_argument("action", choices=["run", "verify"], help="Bridge action: run pipeline or verify receipt.")
+    p_bridge.add_argument("--agent-id", default="agent-cli", help="Agent identifier.")
+    p_bridge.add_argument("--spec-file", help="Path to JSON file specifying pipeline steps.")
+    p_bridge.add_argument("--receipt-file", help="Path to EndToEndExecutionReceipt JSON for verification.")
+    p_bridge.add_argument("--generate-zkvm", action="store_true", help="Generate zkVM deliberation proof.")
+    p_bridge.add_argument("--zkvm-system", default="risc0", choices=["risc0", "sp1"], help="zkVM guest architecture.")
+    p_bridge.add_argument("--crosschain", choices=["layerzero_v2", "chainlink_ccip"], help="Cross-chain protocol.")
+    p_bridge.add_argument("--target-chain", help="Destination chain identifier.")
+    p_bridge.add_argument("-o", "--output", help="Output path for pipeline receipt JSON.")
+    p_bridge.add_argument("--json", action="store_true", help="Output as JSON.")
+
     args = parser.parse_args()
 
     if args.command == "inspect":
@@ -1077,6 +1089,88 @@ def main() -> None:
                 print(f"Receipt Count:      {batch.receipt_count}")
                 print("==================================================================")
             if not all_valid:
+                sys.exit(1)
+
+    elif args.command == "bridge":
+        from .bridge import AgentLifecycleBridge, EndToEndExecutionReceipt
+
+        if args.action == "run":
+            bridge = AgentLifecycleBridge(agent_id=args.agent_id)
+            steps = []
+            if args.spec_file:
+                with open(args.spec_file, "r", encoding="utf-8") as f:
+                    steps = json.load(f)
+            else:
+                steps = [{"step_name": "default_execution_step"}]
+
+            for s in steps:
+                bridge.execute_step(
+                    step_name=s.get("step_name", "unnamed"),
+                    target_files=s.get("target_files"),
+                    tx_simulation_input=s.get("tx_simulation"),
+                    cu_limit=s.get("cu_limit"),
+                )
+
+            receipt = bridge.finalize_pipeline(
+                generate_zkvm=args.generate_zkvm,
+                zkvm_system=args.zkvm_system,
+                crosschain_protocol=args.crosschain,
+                target_chain=args.target_chain,
+            )
+            out_dict = receipt.to_dict()
+
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(out_dict, f, indent=2)
+                print(f"Pipeline receipt saved to {args.output}")
+            elif args.json:
+                print(json.dumps(out_dict, indent=2))
+            else:
+                print("==================================================================")
+                print(" END-TO-END AGENT LIFECYCLE PIPELINE RECEIPT")
+                print("==================================================================")
+                print(f"Pipeline ID:        {receipt.pipeline_id}")
+                print(f"Agent ID:           {receipt.agent_id}")
+                print(f"Merkle Root:        {receipt.merkle_root}")
+                print(f"Total Steps:        {receipt.total_steps}")
+                print(f"Committed Steps:    {receipt.committed_steps}")
+                print(f"Reverted Steps:     {receipt.reverted_steps}")
+                print(f"Final Status:       {receipt.final_status}")
+                if receipt.zkvm_receipt:
+                    print(f"zkVM Guest:         {receipt.zkvm_receipt.get('zkvm_system')} ({receipt.zkvm_receipt.get('journal_digest')[:16]}...)")
+                if receipt.crosschain_dispatch:
+                    print(f"Cross-Chain Target: {receipt.crosschain_dispatch.get('destination_chain')} via {receipt.crosschain_dispatch.get('protocol')}")
+                print("==================================================================")
+
+        elif args.action == "verify":
+            if not args.receipt_file:
+                print("Error: --receipt-file is required for bridge verify.")
+                sys.exit(1)
+            with open(args.receipt_file, "r", encoding="utf-8") as f:
+                rdata = json.load(f)
+            report = AgentLifecycleBridge.verify_pipeline_receipt(rdata)
+            if args.json:
+                print(json.dumps(report.to_dict(), indent=2))
+            else:
+                print("==================================================================")
+                print(" BRIDGE PIPELINE VERIFICATION REPORT")
+                print("==================================================================")
+                print(f"Overall Valid:      {report.valid}")
+                print(f"Pipeline ID:        {report.pipeline_id}")
+                print(f"Merkle Root Valid:  {report.merkle_valid}")
+                print(f"Signature Valid:    {report.signature_valid}")
+                if report.zkvm_valid is not None:
+                    print(f"zkVM Digest Valid:  {report.zkvm_valid}")
+                if report.crosschain_valid is not None:
+                    print(f"Cross-Chain Valid:  {report.crosschain_valid}")
+                print(f"Sandbox Consistent: {report.sandbox_consistent}")
+                print(f"Simulation Compliant:{report.simulation_compliant}")
+                if report.violations:
+                    print("Violations:")
+                    for v in report.violations:
+                        print(f" - {v}")
+                print("==================================================================")
+            if not report.valid:
                 sys.exit(1)
 
 

@@ -289,7 +289,7 @@ def test_cli_mcp_command_stdio():
     assert proc.returncode == 0
     res = json.loads(stdout.strip())
     assert res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert res["result"]["serverInfo"]["version"] in ("0.7.0", "0.8.0")
+    assert res["result"]["serverInfo"]["version"] in ("0.7.0", "0.8.0", "0.9.0")
 
 
 

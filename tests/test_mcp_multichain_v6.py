@@ -16,7 +16,7 @@ def test_mcp_server_initialization_version():
         "params": {},
     }
     resp = server.handle_request(req)
-    assert resp["result"]["serverInfo"]["version"] in ("0.6.0", "0.7.0", "0.8.0")
+    assert resp["result"]["serverInfo"]["version"] in ("0.6.0", "0.7.0", "0.8.0", "0.9.0")
 
 
 def test_mcp_tools_list_has_v6_tools():

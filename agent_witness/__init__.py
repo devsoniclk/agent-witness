@@ -109,8 +109,16 @@ from .zkvm import (
     ZKVMSystem,
     ZKVMVerificationReport,
 )
+from .bridge import (
+    AgentLifecycleBridge,
+    BridgeVerificationReport,
+    EndToEndExecutionReceipt,
+    LifecycleStepReceipt,
+    SandboxMeta,
+    SimulationMeta,
+)
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -221,4 +229,11 @@ __all__ = [
     "RollupBatchAggregator",
     "RollupBatchReceipt",
     "RollupInclusionProof",
+    # v0.9.0 extensions:
+    "AgentLifecycleBridge",
+    "LifecycleStepReceipt",
+    "EndToEndExecutionReceipt",
+    "BridgeVerificationReport",
+    "SandboxMeta",
+    "SimulationMeta",
 ]

@@ -13,3 +13,7 @@ venv/
 htmlcov/
 .DS_Store
 uv.lock
+
+# Rollback engine local storage
+.rollback/
+
