@@ -189,6 +189,18 @@ agent-witness log append trade_receipt.witness --log-dir .witness_log
 
 # 9. Verify multi-agent consensus receipt
 agent-witness consensus verify consensus.json
+
+# 10. Generate & verify zkVM deliberation receipt (RISC Zero / SP1)
+agent-witness zkvm generate --receipt-file trade_receipt.witness -o zkvm_receipt.json --system risc0
+agent-witness zkvm verify --zkvm-file zkvm_receipt.json
+
+# 11. Cross-chain attestation dispatch & fee estimation (LayerZero v2 / Chainlink CCIP)
+agent-witness crosschain estimate --protocol layerzero_v2 --dst-chain arbitrum
+agent-witness crosschain dispatch --receipt-file trade_receipt.witness --protocol chainlink_ccip --dst-chain base
+
+# 12. Recursive Super-Merkle Rollup Batching (>90% calldata compression)
+agent-witness rollup aggregate --receipt-files r1.json r2.json r3.json -o rollup_batch.json
+agent-witness rollup verify --batch-file rollup_batch.json
 ```
 
 ---
