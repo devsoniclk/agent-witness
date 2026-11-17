@@ -56,6 +56,10 @@ class MerkleTree:
     def root_hex(self) -> str:
         return self.root.hex()
 
+    @property
+    def root_hash(self) -> str:
+        return self.root.hex()
+
     def generate_proof(self, leaf_index: int) -> MerkleProof:
         """Generates an inclusion proof for the leaf at index leaf_index."""
         if leaf_index < 0 or leaf_index >= len(self.leaves):

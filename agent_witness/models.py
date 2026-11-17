@@ -52,6 +52,10 @@ class WitnessReceipt:
     signature: str
     steps: List[Dict[str, Any]] = field(default_factory=list)
 
+    @property
+    def receipt_id(self) -> str:
+        return f"rcpt_{self.merkle_root[:16]}"
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 

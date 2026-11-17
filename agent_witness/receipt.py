@@ -16,8 +16,8 @@ class WitnessEngine:
     def __init__(
         self,
         agent_id: str,
-        model_id: str,
-        system_prompt: str,
+        model_id: str = "openbot-v1",
+        system_prompt: str = "Autonomous Agent Attestation System",
         signer: Optional[AgentSigner] = None,
     ):
         self.agent_id = agent_id
@@ -26,17 +26,47 @@ class WitnessEngine:
         self.signer = signer or AgentSigner()
         self.steps: List[DeliberationStep] = []
 
-    def record_step(self, step_type: StepType, content: str, metadata: Optional[Dict[str, Any]] = None) -> DeliberationStep:
+    def record_step(
+        self,
+        step_type: Any,
+        content: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> DeliberationStep:
         """Records a deliberation step (observation, thought, tool call, or decision)."""
+        if isinstance(step_type, str):
+            step_type = StepType(step_type.lower())
+        meta = dict(metadata or {})
+        meta.update(kwargs)
+        if isinstance(content, dict):
+            meta.update(content)
+            content_str = json.dumps(content, sort_keys=True)
+        else:
+            content_str = str(content)
+
         step = DeliberationStep(
             step_type=step_type,
             index=len(self.steps),
-            content=content,
-            metadata=metadata or {},
+            content=content_str,
+            metadata=meta,
             timestamp=time.time(),
         )
         self.steps.append(step)
         return step
+
+    def record_action(
+        self,
+        step_type: Any,
+        content: Any = "",
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> DeliberationStep:
+        """Convenience alias for recording deliberation steps."""
+        return self.record_step(step_type=step_type, content=content, metadata=metadata, **kwargs)
+
+    def finalize(self) -> WitnessReceipt:
+        """Convenience alias for finalize_receipt()."""
+        return self.finalize_receipt()
 
     def finalize_receipt(self) -> WitnessReceipt:
         """
@@ -73,6 +103,25 @@ class WitnessEngine:
             signature=signature,
             steps=step_dicts,
         )
+
+    @staticmethod
+    def reconstruct_tree(receipt: WitnessReceipt) -> MerkleTree:
+        reconstructed_steps = []
+        for s in receipt.steps:
+            if isinstance(s, DeliberationStep):
+                reconstructed_steps.append(s)
+            elif isinstance(s, dict):
+                st_val = s.get("type") or s.get("step_type", "thought")
+                st = StepType(st_val.lower())
+                step = DeliberationStep(
+                    step_type=st,
+                    index=s.get("index", len(reconstructed_steps)),
+                    content=s.get("content", ""),
+                    metadata=s.get("metadata", {}),
+                    timestamp=s.get("timestamp", 0.0),
+                )
+                reconstructed_steps.append(step)
+        return MerkleTree(reconstructed_steps)
 
     def generate_proof_for_step(self, step_index: int) -> MerkleProof:
         """Generates a Merkle inclusion proof for a specific step."""

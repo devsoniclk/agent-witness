@@ -4,8 +4,31 @@ for autonomous AI agents.
 """
 
 from .batch_anchor import BatchAnchorEngine, BatchInclusionProof, EpochBatchReceipt
+from .blinded import BlindedAttestationEngine, BlindedReceipt, RangeProofCommitment, compute_blinded_hash
 from .compliance import AnomalyIncident, ComplianceAnomalyDetector, ComplianceAuditReport
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
+from .credentials import (
+    AgentCredentialEngine,
+    CredentialProof,
+    CredentialSubject,
+    CredentialVerificationReport,
+    VerifiableAgentCredential,
+    did_key_to_pubkey,
+    pubkey_to_did_key,
+)
+from .delegation import (
+    DelegationCapability,
+    DelegationDAGVerifier,
+    DelegationLineageReport,
+    create_delegation_grant,
+)
+from .dispute import (
+    ArbitrationEngine,
+    DisputeClaim,
+    DisputeResolutionReport,
+    DisputeType,
+    SlashingPayload,
+)
 from .eip712 import EIP712Domain, compute_eip712_digest, hash_witness_receipt, keccak256
 from .html_report import render_html_report
 from .log import TransparencyLog
@@ -46,6 +69,12 @@ from .policy import (
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .redaction import RedactionEngine, SaltedCommitment, SelectiveDisclosureReceipt
+from .revocation import (
+    NonRevocationAttestation,
+    RevocationEntry,
+    RevocationReason,
+    RevocationRegistry,
+)
 from .signer import AgentSigner
 from .streaming import (
     CausalProvenanceRecord,
@@ -54,8 +83,14 @@ from .streaming import (
     StreamingStepReceipt,
 )
 from .verifier import AuditCheck, TrajectoryAuditReport, verify_trajectory_integrity
+from .zk_proof import (
+    ZKAttestationProof,
+    ZKConstraintSet,
+    ZKProofEngine,
+    ZKVerificationReport,
+)
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __all__ = [
     "WitnessEngine",
     "AgentSigner",
@@ -122,4 +157,34 @@ __all__ = [
     "ComplianceAnomalyDetector",
     "ComplianceAuditReport",
     "AnomalyIncident",
+    # v0.7.0 extensions:
+    "AgentCredentialEngine",
+    "VerifiableAgentCredential",
+    "CredentialSubject",
+    "CredentialProof",
+    "CredentialVerificationReport",
+    "pubkey_to_did_key",
+    "did_key_to_pubkey",
+    "ZKConstraintSet",
+    "ZKAttestationProof",
+    "ZKVerificationReport",
+    "ZKProofEngine",
+    "RevocationRegistry",
+    "RevocationEntry",
+    "RevocationReason",
+    "NonRevocationAttestation",
+    # Delegation & Blinded & Dispute extensions:
+    "DelegationCapability",
+    "DelegationDAGVerifier",
+    "DelegationLineageReport",
+    "create_delegation_grant",
+    "BlindedAttestationEngine",
+    "BlindedReceipt",
+    "RangeProofCommitment",
+    "compute_blinded_hash",
+    "ArbitrationEngine",
+    "DisputeClaim",
+    "DisputeResolutionReport",
+    "DisputeType",
+    "SlashingPayload",
 ]

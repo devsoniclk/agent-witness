@@ -7,8 +7,12 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .batch_anchor import BatchAnchorEngine
+from .blinded import BlindedAttestationEngine, BlindedReceipt
 from .compliance import ComplianceAnomalyDetector
 from .consensus import MultiAgentConsensusEngine, verify_consensus_receipt
+from .credentials import AgentCredentialEngine, VerifiableAgentCredential, pubkey_to_did_key
+from .delegation import DelegationCapability, DelegationDAGVerifier, create_delegation_grant
+from .dispute import ArbitrationEngine, DisputeClaim, DisputeType
 from .html_report import render_html_report
 from .log import TransparencyLog
 from .mcp_server import WitnessMCPServer
@@ -26,9 +30,11 @@ from .policy import (
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .redaction import RedactionEngine
+from .revocation import RevocationReason, RevocationRegistry
 from .signer import AgentSigner
 from .streaming import StreamingActionSession
 from .verifier import verify_trajectory_integrity
+from .zk_proof import ZKAttestationProof, ZKConstraintSet, ZKProofEngine
 
 
 def main() -> None:
@@ -135,6 +141,100 @@ def main() -> None:
 
     p_lc = log_sub.add_parser("checkpoint", help="Generate a signed log checkpoint (STH).")
     p_lc.add_argument("--log-dir", default=".witness_log", help="Transparency log directory (default: .witness_log).")
+
+    # credential
+    p_cred = subparsers.add_parser("credential", help="W3C Verifiable Agent Credential operations.")
+    cred_sub = p_cred.add_subparsers(dest="cred_command", required=True)
+
+    p_ci = cred_sub.add_parser("issue", help="Issue a signed Verifiable Agent Credential.")
+    p_ci.add_argument("--agent-id", required=True, help="Agent identifier.")
+    p_ci.add_argument("--agent-pubkey", help="Agent public key in hex (defaults to new derived key).")
+    p_ci.add_argument("--roles", help="Comma-separated role strings.")
+    p_ci.add_argument("--capabilities", help="Comma-separated capability or tool strings.")
+    p_ci.add_argument("--allowed-models", help="Comma-separated allowed model identifiers.")
+    p_ci.add_argument("--max-financial-limit", type=float, default=1000.0, help="Maximum financial spend limit.")
+    p_ci.add_argument("--sponsor", default="org.devsoniclk.sponsor", help="Sponsor identity.")
+    p_ci.add_argument("--validity-days", type=int, default=30, help="Validity period in days.")
+    p_ci.add_argument("-o", "--output", help="Output file path for issued credential JSON.")
+
+    p_cv = cred_sub.add_parser("verify", help="Verify a Verifiable Agent Credential.")
+    p_cv.add_argument("credential_file", help="Path to credential JSON file.")
+    p_cv.add_argument("--trusted-issuer-did", help="Optional expected issuer DID.")
+    p_cv.add_argument("--json", action="store_true", help="Output verification report in JSON format.")
+
+    # zk
+    p_zk = subparsers.add_parser("zk", help="Zero-Knowledge action constraint attestation commands.")
+    zk_sub = p_zk.add_subparsers(dest="zk_command", required=True)
+
+    p_zp = zk_sub.add_parser("prove", help="Generate a zero-knowledge attestation proof for a receipt.")
+    p_zp.add_argument("receipt_file", help="Path to receipt JSON file.")
+    p_zp.add_argument("--max-steps", type=int, help="Maximum steps constraint.")
+    p_zp.add_argument("--max-duration-ms", type=float, help="Maximum duration ms constraint.")
+    p_zp.add_argument("--allowed-tools", help="Comma-separated whitelist of allowed tools.")
+    p_zp.add_argument("--allowed-models", help="Comma-separated whitelist of allowed models.")
+    p_zp.add_argument("--max-spend", type=float, help="Maximum financial spend limit.")
+    p_zp.add_argument("-o", "--output", help="Output file path for generated ZK proof JSON.")
+
+    p_zv = zk_sub.add_parser("verify", help="Verify a zero-knowledge attestation proof.")
+    p_zv.add_argument("proof_file", help="Path to ZK proof JSON file.")
+    p_zv.add_argument("--max-steps", type=int, help="Claimed max steps.")
+    p_zv.add_argument("--max-duration-ms", type=float, help="Claimed max duration ms.")
+    p_zv.add_argument("--allowed-tools", help="Comma-separated claimed allowed tools.")
+    p_zv.add_argument("--allowed-models", help="Comma-separated claimed allowed models.")
+    p_zv.add_argument("--max-spend", type=float, help="Claimed max spend.")
+    p_zv.add_argument("--root", help="Expected receipt Merkle root.")
+    p_zv.add_argument("--json", action="store_true", help="Output verification report in JSON format.")
+
+    # revocation
+    p_rev = subparsers.add_parser("revocation", help="Cryptographic revocation registry operations.")
+    rev_sub = p_rev.add_subparsers(dest="rev_command", required=True)
+
+    p_rr = rev_sub.add_parser("revoke", help="Publish a signed revocation notice.")
+    p_rr.add_argument("target_identifier", help="Agent pubkey, credential ID, or session ID.")
+    p_rr.add_argument("--type", default="AGENT_PUBKEY", choices=["AGENT_PUBKEY", "CREDENTIAL_ID", "SESSION_ID"], help="Target type.")
+    p_rr.add_argument("--reason", default="OPERATOR_KILL_SWITCH", help="Revocation reason code.")
+    p_rr.add_argument("--registry-file", default=".witness_revocations.json", help="Path to revocation registry file.")
+
+    p_rc = rev_sub.add_parser("check", help="Check revocation status and generate non-revocation attestation.")
+    p_rc.add_argument("target_identifier", help="Target identifier to check.")
+    p_rc.add_argument("--registry-file", default=".witness_revocations.json", help="Path to revocation registry file.")
+    p_rc.add_argument("--json", action="store_true", help="Output report in JSON format.")
+
+    # delegate
+    p_del = subparsers.add_parser("delegate", help="Hierarchical subagent delegation capabilities.")
+    del_sub = p_del.add_subparsers(dest="del_command", required=True)
+
+    p_dg = del_sub.add_parser("grant", help="Issue a signed capability grant to a subagent.")
+    p_dg.add_argument("child_agent_id", help="Target child agent identifier.")
+    p_dg.add_argument("child_pubkey", help="Target child agent public key in hex.")
+    p_dg.add_argument("--scope", default="*", help="Comma-separated allowed tools (or * for all).")
+    p_dg.add_argument("--expires", type=float, default=3600.0, help="Expiration in seconds.")
+    p_dg.add_argument("--budget", type=float, help="Optional financial spend cap USD.")
+    p_dg.add_argument("-o", "--output", help="Optional output path for grant JSON.")
+    p_dg.add_argument("--json", action="store_true", help="Output grant as JSON.")
+
+    p_dv = del_sub.add_parser("verify", help="Verify a delegation DAG lineage.")
+    p_dv.add_argument("grants_file", help="Path to JSON file containing list of grants.")
+    p_dv.add_argument("--root", required=True, help="Expected root orchestrator agent ID.")
+    p_dv.add_argument("--receipt-file", help="Optional receipt file to verify compliance.")
+    p_dv.add_argument("--json", action="store_true", help="Output verification report as JSON.")
+
+    # blind
+    p_bl = subparsers.add_parser("blind", help="Mask sensitive fields with commitments and range proofs.")
+    p_bl.add_argument("receipt_file", help="Path to .witness or JSON receipt file.")
+    p_bl.add_argument("--keys", required=True, help="Comma-separated sensitive keys to blind.")
+    p_bl.add_argument("-o", "--output", help="Optional output path for blinded receipt JSON.")
+    p_bl.add_argument("--json", action="store_true", help="Output blinded receipt as JSON.")
+
+    # dispute
+    p_disp = subparsers.add_parser("dispute", help="Arbitrate agent disputes and generate slashing payloads.")
+    p_disp.add_argument("receipt_file", help="Path to disputed .witness receipt JSON.")
+    p_disp.add_argument("--claim-id", default="dispute_auto_001", help="Dispute claim identifier.")
+    p_disp.add_argument("--challenger", default="challenger_001", help="Challenger entity identifier.")
+    p_disp.add_argument("--target", required=True, help="Accused agent identifier.")
+    p_disp.add_argument("--type", required=True, choices=["unauthorized_tool", "expired_delegation", "budget_exceeded", "ungrounded_action", "tampered_receipt", "policy_violation"], help="Dispute violation type.")
+    p_disp.add_argument("--grant-file", help="Optional delegation grant JSON file.")
+    p_disp.add_argument("--json", action="store_true", help="Output dispute resolution as JSON.")
 
     args = parser.parse_args()
 
@@ -498,6 +598,283 @@ def main() -> None:
             print(f"Signer Pubkey:      {cp.signer_pubkey}")
             print(f"Signature:          {cp.signature}")
             print("==================================================================")
+
+    elif args.command == "credential":
+        engine = AgentCredentialEngine()
+
+        if args.cred_command == "issue":
+            pubkey = args.agent_pubkey or engine.issuer_signer.pubkey_hex
+            roles = [r.strip() for r in args.roles.split(",")] if args.roles else ["autonomous_executor"]
+            caps = [c.strip() for c in args.capabilities.split(",")] if args.capabilities else ["*"]
+            models = [m.strip() for m in args.allowed_models.split(",")] if args.allowed_models else ["*"]
+
+            cred = engine.issue_credential(
+                agent_id=args.agent_id,
+                agent_pubkey=pubkey,
+                roles=roles,
+                capabilities=caps,
+                allowed_models=models,
+                max_financial_limit=args.max_financial_limit,
+                sponsor_identity=args.sponsor,
+                validity_days=args.validity_days,
+            )
+            data = cred.to_dict()
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                print(f"Issued credential saved to {args.output}")
+            else:
+                print(json.dumps(data, indent=2))
+
+        elif args.cred_command == "verify":
+            with open(args.credential_file, "r", encoding="utf-8") as f:
+                cdata = json.load(f)
+            rep = engine.verify_credential(cdata, trusted_issuer_did=args.trusted_issuer_did)
+            if args.json:
+                print(json.dumps(rep.to_dict(), indent=2))
+            else:
+                print("==================================================================")
+                print(" VERIFIABLE AGENT CREDENTIAL VERIFICATION")
+                print("==================================================================")
+                print(f"Status:             {'VALID' if rep.is_valid else 'INVALID'}")
+                print(f"Credential ID:      {rep.credential_id}")
+                print(f"Issuer DID:         {rep.issuer_did}")
+                print(f"Agent DID:          {rep.agent_did}")
+                print(f"Expired:            {rep.is_expired}")
+                if rep.errors:
+                    print(f"Errors:             {', '.join(rep.errors)}")
+                print("==================================================================")
+            if not rep.is_valid:
+                sys.exit(1)
+
+    elif args.command == "zk":
+        engine = ZKProofEngine()
+
+        if args.zk_command == "prove":
+            with open(args.receipt_file, "r", encoding="utf-8") as f:
+                rdata = json.load(f)
+            receipt = WitnessReceipt(**rdata)
+
+            tools = [t.strip() for t in args.allowed_tools.split(",")] if args.allowed_tools else None
+            models = [m.strip() for m in args.allowed_models.split(",")] if args.allowed_models else None
+            constraints = ZKConstraintSet(
+                max_steps=args.max_steps,
+                max_duration_ms=args.max_duration_ms,
+                allowed_tools=tools,
+                allowed_models=models,
+                max_financial_spend=args.max_spend,
+            )
+            proof = engine.generate_attestation(receipt, constraints)
+            data = proof.to_dict()
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                print(f"Zero-Knowledge attestation proof saved to {args.output}")
+            else:
+                print(json.dumps(data, indent=2))
+
+        elif args.zk_command == "verify":
+            with open(args.proof_file, "r", encoding="utf-8") as f:
+                pdata = json.load(f)
+            tools = [t.strip() for t in args.allowed_tools.split(",")] if args.allowed_tools else None
+            models = [m.strip() for m in args.allowed_models.split(",")] if args.allowed_models else None
+            claimed = ZKConstraintSet(
+                max_steps=args.max_steps,
+                max_duration_ms=args.max_duration_ms,
+                allowed_tools=tools,
+                allowed_models=models,
+                max_financial_spend=args.max_spend,
+            )
+            rep = engine.verify_attestation(pdata, claimed, expected_merkle_root=args.root)
+            if args.json:
+                print(json.dumps(rep.to_dict(), indent=2))
+            else:
+                print("==================================================================")
+                print(" ZERO-KNOWLEDGE CONSTRAINT ATTESTATION VERIFICATION")
+                print("==================================================================")
+                print(f"Status:             {'VERIFIED' if rep.is_verified else 'FAILED'}")
+                print(f"Proof ID:           {rep.proof_id}")
+                print(f"Merkle Root:        {rep.receipt_merkle_root}")
+                print(f"Checked Constraints:{rep.checked_constraints}")
+                if rep.errors:
+                    print(f"Errors:             {', '.join(rep.errors)}")
+                print("==================================================================")
+            if not rep.is_verified:
+                sys.exit(1)
+
+    elif args.command == "revocation":
+        reg = RevocationRegistry(storage_path=args.registry_file)
+
+        if args.rev_command == "revoke":
+            entry = reg.revoke(
+                target_identifier=args.target_identifier,
+                target_type=args.type,
+                reason=args.reason,
+            )
+            print("==================================================================")
+            print(" EMERGENCY REVOCATION NOTICE ISSUED")
+            print("==================================================================")
+            print(f"Entry ID:           {entry.entry_id}")
+            print(f"Target:             {entry.target_identifier} ({entry.target_type})")
+            print(f"Reason:             {entry.reason}")
+            print(f"Authority Pubkey:   {entry.revoked_by_pubkey[:16]}...")
+            print(f"New Merkle Root:    {reg.get_revocation_root()}")
+            print("==================================================================")
+
+        elif args.rev_command == "check":
+            is_rev, entry = reg.is_revoked(args.target_identifier)
+            attestation = reg.attest_non_revocation(args.target_identifier)
+            if args.json:
+                print(json.dumps({
+                    "is_revoked": is_rev,
+                    "target": args.target_identifier,
+                    "entry": entry.to_dict() if entry else None,
+                    "attestation": attestation.to_dict(),
+                }, indent=2))
+            else:
+                print("==================================================================")
+                print(" REVOCATION STATUS CHECK")
+                print("==================================================================")
+                print(f"Target Identifier:  {args.target_identifier}")
+                print(f"Active Status:      {'ACTIVE (UNREVOKED)' if not is_rev else 'REVOKED'}")
+                if is_rev and entry:
+                    print(f"Revocation Reason:  {entry.reason}")
+                    print(f"Revoked At:         {entry.revoked_at}")
+                print(f"Registry Root:      {reg.get_revocation_root()}")
+                print("==================================================================")
+            if is_rev:
+                sys.exit(1)
+
+    elif args.command == "delegate":
+        if args.del_command == "grant":
+            signer = AgentSigner()
+            scope = [s.strip() for s in args.scope.split(",")] if args.scope != "*" else ["*"]
+            grant = create_delegation_grant(
+                parent_signer=signer,
+                parent_agent_id="root_orchestrator",
+                child_agent_id=args.child_agent_id,
+                child_pubkey=args.child_pubkey,
+                scope=scope,
+                expires_in_seconds=args.expires,
+                max_budget_usd=args.budget,
+            )
+            data = grant.to_dict()
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                print(f"Delegation capability grant saved to {args.output}")
+            elif args.json:
+                print(json.dumps(data, indent=2))
+            else:
+                print("==================================================================")
+                print(" SUBAGENT DELEGATION CAPABILITY GRANT ISSUED")
+                print("==================================================================")
+                print(f"Grant ID:           {grant.grant_id}")
+                print(f"Child Agent ID:     {grant.child_agent_id}")
+                print(f"Child Pubkey:       {grant.child_pubkey[:16]}...")
+                print(f"Authorized Scope:   {grant.scope}")
+                print(f"Expires At:         {grant.expires_at}")
+                if grant.max_budget_usd:
+                    print(f"Max Budget:         ${grant.max_budget_usd:.2f}")
+                print(f"Signature:          {grant.parent_signature[:32]}...")
+                print("==================================================================")
+
+        elif args.del_command == "verify":
+            with open(args.grants_file, "r", encoding="utf-8") as f:
+                gdata = json.load(f)
+            grants = [DelegationCapability.from_dict(g) for g in (gdata if isinstance(gdata, list) else [gdata])]
+            receipts = None
+            if args.receipt_file:
+                with open(args.receipt_file, "r", encoding="utf-8") as f:
+                    rdata = json.load(f)
+                receipts = [WitnessReceipt(**rdata)]
+            report = DelegationDAGVerifier.verify_lineage(
+                root_agent_id=args.root,
+                grants=grants,
+                action_receipts=receipts,
+            )
+            if args.json:
+                print(json.dumps(report.to_dict(), indent=2))
+            else:
+                print("==================================================================")
+                print(" DELEGATION DAG LINEAGE VERIFICATION")
+                print("==================================================================")
+                print(f"Status:             {'VERIFIED' if report.is_valid else 'VIOLATIONS DETECTED'}")
+                print(f"Root Agent:         {report.root_agent_id}")
+                print(f"Chain Depth:        {report.chain_depth}")
+                print(f"Delegated Tools:    {report.delegated_tools}")
+                if report.violations:
+                    print("Violations:")
+                    for v in report.violations:
+                        print(f"  - {v}")
+                print("==================================================================")
+            if not report.is_valid:
+                sys.exit(1)
+
+    elif args.command == "blind":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        receipt = WitnessReceipt(**data)
+        keys = [k.strip() for k in args.keys.split(",")]
+        blinded, salts = BlindedAttestationEngine.blind_receipt(receipt, sensitive_keys=keys)
+        out_data = {
+            "blinded_receipt": blinded.to_dict(),
+            "private_salts": salts,
+        }
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                json.dump(out_data, f, indent=2)
+            print(f"Blinded receipt saved to {args.output}")
+        elif args.json:
+            print(json.dumps(out_data, indent=2))
+        else:
+            print("==================================================================")
+            print(" PRIVACY-PRESERVING BLINDED ATTESTATION RECEIPT")
+            print("==================================================================")
+            print(f"Original Receipt:   {blinded.original_receipt_id}")
+            print(f"Merkle Root:        {blinded.merkle_root}")
+            print(f"Commitments Count:  {len(blinded.commitments)}")
+            print(f"Blinded Keys:       {list(blinded.commitments.keys())}")
+            print(f"Range Proofs Count: {len(blinded.range_proofs)}")
+            print("==================================================================")
+
+    elif args.command == "dispute":
+        with open(args.receipt_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        receipt = WitnessReceipt(**data)
+        grant = None
+        if args.grant_file:
+            with open(args.grant_file, "r", encoding="utf-8") as f:
+                gdata = json.load(f)
+            grant = DelegationCapability.from_dict(gdata)
+
+        claim = DisputeClaim(
+            claim_id=args.claim_id,
+            challenger_id=args.challenger,
+            target_agent_id=args.target,
+            receipt=receipt,
+            dispute_type=DisputeType(args.type),
+        )
+        res = ArbitrationEngine.arbitrate(claim, delegation_grant=grant)
+        if args.json:
+            print(json.dumps(res.to_dict(), indent=2))
+        else:
+            print("==================================================================")
+            print(" AUTONOMOUS DISPUTE ARBITRATION REPORT")
+            print("==================================================================")
+            print(f"Claim ID:           {res.claim_id}")
+            print(f"Verdict:            {res.verdict}")
+            print(f"Fault Confirmed:    {res.is_fault_confirmed}")
+            if res.faulty_agent_id:
+                print(f"Faulty Agent:       {res.faulty_agent_id}")
+                print(f"Slashing Penalty:   {res.slashing_penalty_bps} bps ({res.slashing_penalty_bps/100:.1f}%)")
+            print(f"Reason:             {res.reason}")
+            print(f"Resolution Hash:    {res.resolution_hash}")
+            if res.slashing_payload:
+                print(f"EVM Calldata:       {res.slashing_payload.evm_calldata[:32]}...")
+            print("==================================================================")
+        if res.is_fault_confirmed:
+            sys.exit(2)
 
 
 if __name__ == "__main__":

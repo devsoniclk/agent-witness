@@ -19,6 +19,10 @@ from .models import (
     StepType,
     WitnessReceipt,
 )
+from .blinded import BlindedAttestationEngine, BlindedReceipt
+from .credentials import AgentCredentialEngine, VerifiableAgentCredential, pubkey_to_did_key
+from .delegation import DelegationCapability, DelegationDAGVerifier, create_delegation_grant
+from .dispute import ArbitrationEngine, DisputeClaim, DisputeType
 from .multichain import MultiChainAnchorDispatcher
 from .policy import (
     DisallowedToolsRule,
@@ -31,9 +35,11 @@ from .policy import (
 from .proof import export_proof_bundle, verify_proof_bundle
 from .receipt import WitnessEngine
 from .redaction import RedactionEngine
+from .revocation import RevocationReason, RevocationRegistry
 from .signer import AgentSigner
 from .streaming import StreamingActionSession
 from .verifier import verify_trajectory_integrity
+from .zk_proof import ZKAttestationProof, ZKConstraintSet, ZKProofEngine
 
 
 class WitnessMCPServer:
@@ -69,6 +75,9 @@ class WitnessMCPServer:
         self.active_sessions: Dict[str, StreamingActionSession] = {}
         self.multichain_dispatcher = MultiChainAnchorDispatcher(signer=self.signer)
         self.compliance_detector = ComplianceAnomalyDetector(signer=self.signer)
+        self.credential_engine = AgentCredentialEngine(issuer_signer=self.signer)
+        self.zk_engine = ZKProofEngine(signer=self.signer)
+        self.revocation_registry = RevocationRegistry(authority_signer=self.signer)
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         return [
@@ -429,6 +438,140 @@ class WitnessMCPServer:
                             "description": "Expected agent public key or authority identifier.",
                         },
                     },
+                },
+            },
+            {
+                "name": "witness_issue_credential",
+                "description": "Issue a W3C-compliant Verifiable Agent Credential binding agent DID, capability boundary, allowed models, and sponsor identity.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {"type": "string", "description": "Agent identifier string."},
+                        "agent_pubkey": {"type": "string", "description": "Agent public key in hex (defaults to server signer pubkey)."},
+                        "roles": {"type": "array", "items": {"type": "string"}, "description": "Delegated role names."},
+                        "capabilities": {"type": "array", "items": {"type": "string"}, "description": "Authorized capability strings or tools."},
+                        "allowed_models": {"type": "array", "items": {"type": "string"}, "description": "Allowed LLM model identifiers."},
+                        "max_financial_limit": {"type": "number", "description": "Maximum authorized financial asset transfer ceiling."},
+                        "sponsor_identity": {"type": "string", "description": "Human or organizational sponsor identifier."},
+                        "validity_days": {"type": "integer", "description": "Credential validity period in days (default: 30)."},
+                    },
+                    "required": ["agent_id"],
+                },
+            },
+            {
+                "name": "witness_verify_credential",
+                "description": "Cryptographically verify a Verifiable Agent Credential for expiration, issuer authenticity, and integrity.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "credential": {"type": "object", "description": "Verifiable Agent Credential object to verify."},
+                        "trusted_issuer_did": {"type": "string", "description": "Optional trusted issuer DID string."},
+                    },
+                    "required": ["credential"],
+                },
+            },
+            {
+                "name": "witness_generate_zk_attestation",
+                "description": "Generate a succinct zero-knowledge attestation proving trajectory compliance (step limits, latency ceiling, model/tool membership) without leaking sensitive prompt/output tokens.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_file": {"type": "string", "description": "Optional path to receipt JSON file."},
+                        "max_steps": {"type": "integer", "description": "Maximum steps constraint to prove."},
+                        "max_duration_ms": {"type": "number", "description": "Maximum duration in ms to prove."},
+                        "allowed_tools": {"type": "array", "items": {"type": "string"}, "description": "Whitelist of authorized tools."},
+                        "allowed_models": {"type": "array", "items": {"type": "string"}, "description": "Whitelist of authorized model IDs."},
+                        "max_financial_spend": {"type": "number", "description": "Ceiling on cumulative financial value."},
+                    },
+                },
+            },
+            {
+                "name": "witness_verify_zk_attestation",
+                "description": "Mathematically verify a zero-knowledge constraint attestation proof against claimed bounds without trajectory inspection.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "proof": {"type": "object", "description": "ZKAttestationProof dictionary object."},
+                        "max_steps": {"type": "integer", "description": "Claimed maximum steps."},
+                        "max_duration_ms": {"type": "number", "description": "Claimed maximum duration ms."},
+                        "allowed_tools": {"type": "array", "items": {"type": "string"}, "description": "Claimed allowed tools."},
+                        "allowed_models": {"type": "array", "items": {"type": "string"}, "description": "Claimed allowed models."},
+                        "max_financial_spend": {"type": "number", "description": "Claimed maximum financial spend."},
+                        "expected_merkle_root": {"type": "string", "description": "Optional expected Merkle root."},
+                    },
+                    "required": ["proof"],
+                },
+            },
+            {
+                "name": "witness_check_revocation",
+                "description": "Query the cryptographic revocation registry to verify that an agent public key, credential, or session is active and unrevoked.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target_identifier": {"type": "string", "description": "Agent public key, credential ID, or session ID."},
+                        "target_type": {"type": "string", "description": "Target type: AGENT_PUBKEY, CREDENTIAL_ID, or SESSION_ID (default: AGENT_PUBKEY)."},
+                        "revoke_now": {"type": "boolean", "description": "Whether to trigger immediate revocation (emergency kill-switch)."},
+                        "reason": {"type": "string", "description": "Revocation reason if revoke_now is true."},
+                    },
+                    "required": ["target_identifier"],
+                },
+            },
+            {
+                "name": "witness_delegate_capability",
+                "description": "Issue and cryptographically sign a scoped delegation capability grant to a child subagent.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "child_agent_id": {"type": "string", "description": "Subagent or child agent identifier."},
+                        "child_pubkey": {"type": "string", "description": "Public key in hex of the subagent."},
+                        "scope": {"type": "array", "items": {"type": "string"}, "description": "Allowed tools or actions (e.g. ['web_search', 'run_test'] or ['*'])."},
+                        "expires_in_seconds": {"type": "number", "description": "Grant validity duration in seconds (default: 3600.0)."},
+                        "max_budget_usd": {"type": "number", "description": "Optional financial spend limit ceiling."},
+                        "metadata": {"type": "object", "description": "Optional grant metadata."},
+                    },
+                    "required": ["child_agent_id", "child_pubkey", "scope"],
+                },
+            },
+            {
+                "name": "witness_verify_delegation_dag",
+                "description": "Verify a multi-agent delegation DAG lineage, checking signatures, scopes, time validity, and budget caps.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root_agent_id": {"type": "string", "description": "Root orchestrator agent identifier."},
+                        "grants": {"type": "array", "items": {"type": "object"}, "description": "List of DelegationCapability grant objects."},
+                        "receipt_file": {"type": "string", "description": "Optional receipt file to verify compliance against grants."},
+                    },
+                    "required": ["root_agent_id", "grants"],
+                },
+            },
+            {
+                "name": "witness_blind_receipt",
+                "description": "Mask sensitive receipt fields with cryptographic commitments and generate verifiable range proofs.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "sensitive_keys": {"type": "array", "items": {"type": "string"}, "description": "Keys to blind (e.g. ['amount', 'token', 'confidence'])."},
+                        "receipt_file": {"type": "string", "description": "Optional path to receipt JSON file."},
+                        "range_rules": {"type": "object", "description": "Optional mapping of key to [min, max] range constraints."},
+                    },
+                    "required": ["sensitive_keys"],
+                },
+            },
+            {
+                "name": "witness_arbitrate_dispute",
+                "description": "Arbitrate an operational dispute against agent receipts, delegation grants, and policy rules. Generates on-chain slashing payloads.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "claim_id": {"type": "string", "description": "Unique dispute claim identifier."},
+                        "challenger_id": {"type": "string", "description": "Identifier of the entity filing the dispute."},
+                        "target_agent_id": {"type": "string", "description": "Identifier of the agent accused of violation."},
+                        "dispute_type": {"type": "string", "enum": ["unauthorized_tool", "expired_delegation", "budget_exceeded", "ungrounded_action", "tampered_receipt", "policy_violation"], "description": "Type of disputed violation."},
+                        "receipt_file": {"type": "string", "description": "Optional path to receipt JSON file under dispute."},
+                        "delegation_grant": {"type": "object", "description": "Optional DelegationCapability object."},
+                    },
+                    "required": ["claim_id", "challenger_id", "target_agent_id", "dispute_type"],
                 },
             },
         ]
@@ -811,6 +954,193 @@ class WitnessMCPServer:
                     "signature": report.signature,
                 }
 
+            elif tool_name == "witness_issue_credential":
+                agent_id = arguments.get("agent_id")
+                agent_pubkey = arguments.get("agent_pubkey") or self.signer.pubkey_hex
+                roles = arguments.get("roles")
+                capabilities = arguments.get("capabilities")
+                allowed_models = arguments.get("allowed_models")
+                max_fin = float(arguments.get("max_financial_limit", 1000.0))
+                sponsor = arguments.get("sponsor_identity", "org.devsoniclk.sponsor")
+                valid_days = int(arguments.get("validity_days", 30))
+
+                cred = self.credential_engine.issue_credential(
+                    agent_id=agent_id,
+                    agent_pubkey=agent_pubkey,
+                    roles=roles,
+                    capabilities=capabilities,
+                    allowed_models=allowed_models,
+                    max_financial_limit=max_fin,
+                    sponsor_identity=sponsor,
+                    validity_days=valid_days,
+                )
+                return {
+                    "status": "success",
+                    "credential": cred.to_dict(),
+                    "credential_id": cred.id,
+                    "issuer_did": cred.issuer,
+                    "agent_did": cred.credential_subject.id,
+                }
+
+            elif tool_name == "witness_verify_credential":
+                raw_cred = arguments.get("credential", {})
+                trusted_issuer = arguments.get("trusted_issuer_did")
+                report = self.credential_engine.verify_credential(
+                    raw_cred,
+                    trusted_issuer_did=trusted_issuer,
+                )
+                return report.to_dict()
+
+            elif tool_name == "witness_generate_zk_attestation":
+                receipt = self._resolve_receipt(arguments)
+                if not receipt:
+                    return {"error": "No receipt available. Finalize a session or provide receipt_file."}
+
+                constraints = ZKConstraintSet(
+                    max_steps=arguments.get("max_steps"),
+                    max_duration_ms=arguments.get("max_duration_ms"),
+                    allowed_tools=arguments.get("allowed_tools"),
+                    allowed_models=arguments.get("allowed_models"),
+                    max_financial_spend=arguments.get("max_financial_spend"),
+                )
+                proof = self.zk_engine.generate_attestation(receipt, constraints)
+                return {
+                    "status": "success",
+                    "proof": proof.to_dict(),
+                    "proof_id": proof.proof_id,
+                    "merkle_root": proof.receipt_merkle_root,
+                    "fiat_shamir_challenge": proof.fiat_shamir_challenge,
+                }
+
+            elif tool_name == "witness_verify_zk_attestation":
+                proof_data = arguments.get("proof", {})
+                claimed = ZKConstraintSet(
+                    max_steps=arguments.get("max_steps"),
+                    max_duration_ms=arguments.get("max_duration_ms"),
+                    allowed_tools=arguments.get("allowed_tools"),
+                    allowed_models=arguments.get("allowed_models"),
+                    max_financial_spend=arguments.get("max_financial_spend"),
+                )
+                expected_root = arguments.get("expected_merkle_root")
+                report = self.zk_engine.verify_attestation(proof_data, claimed, expected_merkle_root=expected_root)
+                return report.to_dict()
+
+            elif tool_name == "witness_check_revocation":
+                target = arguments.get("target_identifier")
+                if not target:
+                    return {"error": "target_identifier is required"}
+
+                revoke_now = arguments.get("revoke_now", False)
+                if revoke_now:
+                    reason = arguments.get("reason", RevocationReason.OPERATOR_KILL_SWITCH)
+                    target_type = arguments.get("target_type", "AGENT_PUBKEY")
+                    entry = self.revocation_registry.revoke(
+                        target_identifier=target,
+                        target_type=target_type,
+                        reason=reason,
+                    )
+                    return {
+                        "status": "revoked",
+                        "revocation_entry": entry.to_dict(),
+                        "revocation_root": self.revocation_registry.get_revocation_root(),
+                    }
+
+                is_rev, entry = self.revocation_registry.is_revoked(target)
+                attestation = self.revocation_registry.attest_non_revocation(target)
+                return {
+                    "target_identifier": target,
+                    "is_revoked": is_rev,
+                    "revocation_entry": entry.to_dict() if entry else None,
+                    "non_revocation_attestation": attestation.to_dict(),
+                    "revocation_root": self.revocation_registry.get_revocation_root(),
+                }
+
+            elif tool_name == "witness_delegate_capability":
+                child_id = arguments["child_agent_id"]
+                child_pk = arguments["child_pubkey"]
+                scope = arguments["scope"]
+                exp = float(arguments.get("expires_in_seconds", 3600.0))
+                max_b = float(arguments["max_budget_usd"]) if "max_budget_usd" in arguments and arguments["max_budget_usd"] is not None else None
+                meta = arguments.get("metadata")
+
+                grant = create_delegation_grant(
+                    parent_signer=self.signer,
+                    parent_agent_id=self.agent_id,
+                    child_agent_id=child_id,
+                    child_pubkey=child_pk,
+                    scope=scope,
+                    expires_in_seconds=exp,
+                    max_budget_usd=max_b,
+                    metadata=meta,
+                )
+                return {
+                    "status": "success",
+                    "grant": grant.to_dict(),
+                    "grant_id": grant.grant_id,
+                    "parent_pubkey": grant.parent_pubkey,
+                    "signature": grant.parent_signature,
+                }
+
+            elif tool_name == "witness_verify_delegation_dag":
+                root_id = arguments["root_agent_id"]
+                raw_grants = arguments["grants"]
+                grants = [DelegationCapability.from_dict(g) for g in raw_grants]
+                receipts = None
+                receipt = self._resolve_receipt(arguments)
+                if receipt:
+                    receipts = [receipt]
+
+                report = DelegationDAGVerifier.verify_lineage(
+                    root_agent_id=root_id,
+                    grants=grants,
+                    action_receipts=receipts,
+                    parent_signers={self.agent_id: self.signer},
+                )
+                return report.to_dict()
+
+            elif tool_name == "witness_blind_receipt":
+                receipt = self._resolve_receipt(arguments)
+                if not receipt:
+                    return {"error": "No receipt available. Finalize a session or provide receipt_file."}
+                sensitive_keys = arguments["sensitive_keys"]
+                raw_rules = arguments.get("range_rules") or {}
+                range_rules = {k: (float(v[0]), float(v[1])) for k, v in raw_rules.items()}
+                blinded, private_salts = BlindedAttestationEngine.blind_receipt(
+                    receipt=receipt,
+                    sensitive_keys=sensitive_keys,
+                    range_rules=range_rules,
+                )
+                return {
+                    "status": "success",
+                    "blinded_receipt": blinded.to_dict(),
+                    "commitments_count": len(blinded.commitments),
+                    "range_proofs_count": len(blinded.range_proofs),
+                    "merkle_root": blinded.merkle_root,
+                    "private_salts": private_salts,
+                }
+
+            elif tool_name == "witness_arbitrate_dispute":
+                receipt = self._resolve_receipt(arguments)
+                if not receipt:
+                    return {"error": "No receipt available. Finalize a session or provide receipt_file."}
+                claim_id = arguments["claim_id"]
+                challenger_id = arguments["challenger_id"]
+                target_agent_id = arguments["target_agent_id"]
+                dispute_type_str = arguments["dispute_type"]
+                dtype = DisputeType(dispute_type_str)
+                raw_grant = arguments.get("delegation_grant")
+                grant = DelegationCapability.from_dict(raw_grant) if raw_grant else None
+
+                claim = DisputeClaim(
+                    claim_id=claim_id,
+                    challenger_id=challenger_id,
+                    target_agent_id=target_agent_id,
+                    receipt=receipt,
+                    dispute_type=dtype,
+                )
+                res = ArbitrationEngine.arbitrate(claim, delegation_grant=grant)
+                return res.to_dict()
+
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
 
@@ -831,7 +1161,7 @@ class WitnessMCPServer:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "agent-witness-mcp",
-                        "version": "0.6.0",
+                        "version": "0.7.0",
                     },
                 },
             }

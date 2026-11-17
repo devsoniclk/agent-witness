@@ -29,7 +29,10 @@ As autonomous AI agents execute financial transactions, trade assets, call inter
 - **Multi-Chain Anchor Dispatcher**: Generates cross-chain anchor transaction payloads across Solana Anchor state programs (with PDA derivation) and EVM L1/L2 contracts with threshold quorum attestation.
 - **Streaming Action Session & Continuous Deliberation Provenance**: Incremental rolling Merkle frontier accumulator with O(1) amortized leaf addition and causal thought-to-action grounding audits.
 - **Automated Compliance & Anomaly Detector**: Real-time evaluation of action streams for velocity bursts, cumulative value-at-risk caps, authority drift, and temporal clock skews.
-- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 16 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **Model Context Protocol (MCP) Server**: Standard JSON-RPC 2.0 stdio server providing 25 cryptographic tools to autonomous coding agents (Claude Code, OpenBot, Cursor, Cline).
+- **W3C Verifiable Agent Credentials**: Standardized Decentralized Identifier (`did:key`) identity binding, issuing cryptographic credentials with delegated capability boundaries, model whitelists, financial caps, and sponsor attestations.
+- **Zero-Knowledge Action Attestation**: Succinct zero-knowledge proof generation proving step bounds, latency limits, model membership, and tool whitelists via Fiat-Shamir heuristics without leaking raw thoughts, prompts, or outputs.
+- **Cryptographic Revocation Registry & Operator Kill-Switch**: Tamper-evident Merkle revocation registry and emergency pause gate to immediately invalidate compromised agent keys and quarantine rogue trajectories.
 - **Forensic Multi-Layer Trajectory Auditor**: End-to-end verification engine checking step sequence continuity, timestamp monotonicity, canonical leaf hashes, Merkle root validity, signatures, log inclusion, policy compliance, and consensus quorums.
 - **Interactive Dark-Mode HTML Audit Dossier**: Offline, dependency-free visual reports featuring responsive SVG Merkle tree diagrams, redacted step shields, expandable step timelines, and verification badges.
 - **Universal Tool Middleware**: Intercept and attest synchronous and asynchronous agent functions with `@witness_action`.

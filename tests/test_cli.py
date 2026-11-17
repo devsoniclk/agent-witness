@@ -289,7 +289,7 @@ def test_cli_mcp_command_stdio():
     assert proc.returncode == 0
     res = json.loads(stdout.strip())
     assert res["result"]["serverInfo"]["name"] == "agent-witness-mcp"
-    assert res["result"]["serverInfo"]["version"] == "0.6.0"
+    assert res["result"]["serverInfo"]["version"] == "0.7.0"
 
 
 
@@ -400,3 +400,101 @@ def test_cli_v060_commands():
     finally:
         Path(rf_path).unlink(missing_ok=True)
         Path(bundle_path).unlink(missing_ok=True)
+
+
+def test_cli_v070_commands():
+    repo_root = Path(__file__).parent.parent
+
+    engine = WitnessEngine("cli-v7-agent", "gemini-flash", "System Prompt V7")
+    engine.record_step(StepType.THOUGHT, "Analyzing financial constraints")
+    engine.record_step(StepType.TOOL_CALL, "execute_trade", metadata={"tool_name": "execute_trade", "amount": 50.0})
+    engine.record_step(StepType.DECISION, "Signed order")
+    receipt = engine.finalize_receipt()
+
+    with tempfile.NamedTemporaryFile("w", suffix=".witness", delete=False) as tf:
+        json.dump(receipt.to_dict(), tf)
+        rf_path = tf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".cred.json", delete=False) as cf:
+        cred_path = cf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".zk.json", delete=False) as zf:
+        zk_path = zf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".rev.json", delete=False) as rf:
+        rev_path = rf.name
+
+    try:
+        # 1. credential issue
+        res_ci = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "credential", "issue", "--agent-id", "cli-v7-agent", "-o", cred_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_ci.returncode == 0
+        assert Path(cred_path).exists()
+
+        # 2. credential verify
+        res_cv = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "credential", "verify", cred_path, "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_cv.returncode == 0
+        c_rep = json.loads(res_cv.stdout)
+        assert c_rep["is_valid"] is True
+
+        # 3. zk prove
+        res_zp = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "zk", "prove", rf_path, "--max-steps", "10", "-o", zk_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_zp.returncode == 0
+        assert Path(zk_path).exists()
+
+        # 4. zk verify
+        res_zv = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "zk", "verify", zk_path, "--max-steps", "10", "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_zv.returncode == 0
+        z_rep = json.loads(res_zv.stdout)
+        assert z_rep["is_verified"] is True
+
+        # 5. revocation check
+        res_rc = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "revocation", "check", "agent_test_pubkey", "--registry-file", rev_path, "--json"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_rc.returncode == 0
+        r_rep = json.loads(res_rc.stdout)
+        assert r_rep["is_revoked"] is False
+
+        # 6. revocation revoke
+        res_rr = subprocess.run(
+            [sys.executable, "-m", "agent_witness.cli", "revocation", "revoke", "agent_test_pubkey", "--registry-file", rev_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            env={"PYTHONPATH": str(repo_root)},
+        )
+        assert res_rr.returncode == 0
+        assert "EMERGENCY REVOCATION NOTICE ISSUED" in res_rr.stdout
+    finally:
+        Path(rf_path).unlink(missing_ok=True)
+        Path(cred_path).unlink(missing_ok=True)
+        Path(zk_path).unlink(missing_ok=True)
+        Path(rev_path).unlink(missing_ok=True)
