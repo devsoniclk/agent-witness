@@ -207,6 +207,18 @@ agent-witness consensus verify consensus.json
 | `witness_log_verify_consistency` | Verify append-only consistency between two log tree sizes. |
 | `witness_attest_consensus` | Cast an agent attestation vote towards M-of-N threshold consensus. |
 | `witness_generate_dossier` | Generate a standalone dark-mode HTML audit dossier with embedded SVG Merkle tree. |
+| `witness_anchor_multichain` | Generate cross-chain anchor transactions across Solana state programs and EVM L1/L2 contracts. |
+| `witness_session_stream` | Incremental rolling Merkle frontier session with continuous causal provenance tracking. |
+| `witness_audit_compliance` | Automated compliance anomaly detector for velocity bursts, asset limits, and authority drift. |
+| `witness_issue_credential` | Issue W3C-compliant Verifiable Agent Credential binding DID, roles, models, and spend caps. |
+| `witness_verify_credential` | Cryptographically verify Verifiable Agent Credentials for expiration, authenticity, and bounds. |
+| `witness_generate_zk_attestation` | Generate succinct zero-knowledge attestation proving trajectory compliance via Fiat-Shamir heuristics. |
+| `witness_verify_zk_attestation` | Mathematically verify zero-knowledge constraint attestation proofs without leaking secret prompts. |
+| `witness_check_revocation` | Query Merkle revocation registry and trigger emergency kill-switch halts for compromised agents. |
+| `witness_delegate_capability` | Issue and cryptographically sign scoped delegation capability grants to subagents. |
+| `witness_verify_delegation_dag` | Cryptographically verify hierarchical multi-agent delegation lineages and scope containment. |
+| `witness_blind_receipt` | Mask sensitive step inputs/outputs with salted blinding commitments and range bounding proofs. |
+| `witness_arbitrate_dispute` | Arbitrate operational agent disputes and generate EVM/Solana on-chain slashing payloads. |
 
 ---
 
@@ -254,6 +266,14 @@ Measured on Apple Silicon (M5 Air):
 - [x] Selective Disclosure & Redaction Engine (`RedactionEngine`, `agent-witness redact`).
 - [x] Policy Governance Guardrails (`PolicyGuard`, `agent-witness policy`).
 - [x] Epoch Batch Merkle Anchoring for EVM and Solana (`BatchAnchorEngine`, `agent-witness batch-anchor`).
+- [x] Multi-Chain Anchor Dispatcher & Streaming Sessions (`MultiChainAnchorDispatcher`, `StreamingActionSession`).
+- [x] Compliance Anomaly Detector (`ComplianceAnomalyDetector`, `agent-witness compliance`).
+- [x] W3C Verifiable Agent Credentials (`AgentCredentialEngine`, `agent-witness credential`).
+- [x] Zero-Knowledge Action Attestation (`ZKProofEngine`, `agent-witness zk`).
+- [x] Cryptographic Revocation Registry & Operator Kill-Switch (`RevocationRegistry`, `agent-witness revocation`).
+- [x] Hierarchical Subagent Delegation Capabilities (`DelegationDAGVerifier`, `agent-witness delegate`).
+- [x] Privacy-Preserving Blinded Attestation & Range Proofs (`BlindedAttestationEngine`, `agent-witness blind`).
+- [x] Autonomous Dispute Arbitration & Slashing Protocol (`ArbitrationEngine`, `agent-witness dispute`).
 - [ ] ZK-SNARK circuit for zero-knowledge agent step proofs.
 
 ---
